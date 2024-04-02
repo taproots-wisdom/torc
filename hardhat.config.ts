@@ -109,10 +109,10 @@ const config: HardhatUserConfig = {
         },
         chainId: chainIds.hardhat,          
         loggingEnabled: process.env.EVM_LOGGING === "true",
-        // forking: {
-        //   url: getChainRPC("mainnet"),
-        //   blockNumber: 19069705
-        // },
+        forking: {
+          url: getChainRPC("mainnet"),
+          blockNumber: 19564966
+        },
         
     },   
     mainnet: getChainConfig("mainnet"),

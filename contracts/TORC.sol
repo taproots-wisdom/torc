@@ -12,8 +12,7 @@ import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import '@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol';
 import '@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol';
 
-
-// import "./Auth.sol";
+import "hardhat/console.sol";
 
 contract TORC is ERC20, ERC20Burnable, ERC20Pausable, Ownable, ERC20Capped { 
 	// string constant _name = "Torc"; 
@@ -31,6 +30,7 @@ contract TORC is ERC20, ERC20Burnable, ERC20Pausable, Ownable, ERC20Capped {
 	address payable public marketingWallet;
 	address payable public teamWallet;
 	address payable public devWallet;
+	address payable public uniswapRouterV2Address;
 
 	mapping (address => bool) public excludedFromFees;
 
@@ -46,7 +46,6 @@ contract TORC is ERC20, ERC20Burnable, ERC20Pausable, Ownable, ERC20Capped {
 	mapping (address => uint256) private _lastSwapBlock;
 
 	bool private _inTaxSwap = false;
-	address private constant _uniswapV2RouterAddress = address(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
 	IUniswapV2Router02 private _uniswapV2Router;
 	modifier lockTaxSwap { 
 		_inTaxSwap = true; _; 
@@ -58,11 +57,18 @@ contract TORC is ERC20, ERC20Burnable, ERC20Pausable, Ownable, ERC20Capped {
 	event TaxWalletChanged(address newTaxWallet);
 	event TaxRateChanged(uint8 newBuyTax, uint8 newSellTax);
 
-	constructor () ERC20("Torc", "TORC") ERC20Capped(_totalSupply) Ownable(msg.sender) {
+	constructor (address _uniswapV2RouterAddress, address _taxWallet, address _treasuryWallet, address _devWallet, address _marketingWallet, address _teamWallet) ERC20("Torc", "TORC") ERC20Capped(_totalSupply) Ownable(msg.sender) {
+		uniswapRouterV2Address = payable(_uniswapV2RouterAddress);
+		taxWallet = payable(_taxWallet);
+		treasuryWallet = payable(_treasuryWallet);
+		devWallet = payable(_devWallet);
+		marketingWallet = payable(_marketingWallet);
+		teamWallet = payable(_teamWallet);
+
 		taxSwapMin = _totalSupply * 10 / 10000;
 		taxSwapMax = _totalSupply * 50 / 10000;
 		_uniswapV2Router = IUniswapV2Router02(_uniswapV2RouterAddress);
-		excludedFromFees[_uniswapV2RouterAddress] = true;
+		excludedFromFees[_uniswapV2RouterAddress] = true; 
 
 		excludedFromAntiBot[msg.sender] = true;
 		excludedFromAntiBot[address(this)] = true;
@@ -70,11 +76,11 @@ contract TORC is ERC20, ERC20Burnable, ERC20Pausable, Ownable, ERC20Capped {
 		excludedFromFees[msg.sender] = true;
 		excludedFromFees[address(this)] = true;
 		excludedFromFees[address(0)] = true;
-		excludedFromFees[taxWallet] = true;
-		excludedFromFees[treasuryWallet] = true;
-		excludedFromFees[devWallet] = true;
-		excludedFromFees[marketingWallet] = true;
-		excludedFromFees[teamWallet] = true;
+		excludedFromFees[_taxWallet] = true;
+		excludedFromFees[_treasuryWallet] = true;
+		excludedFromFees[_devWallet] = true;
+		excludedFromFees[_marketingWallet] = true;
+		excludedFromFees[_teamWallet] = true;
 
 		taxRateBuy = 3;
 		taxRateSell = 3;
@@ -106,16 +112,19 @@ contract TORC is ERC20, ERC20Burnable, ERC20Pausable, Ownable, ERC20Capped {
 		_mint(treasuryWallet, _treasuryAmount);
 		_mint(marketingWallet, _marketingAmount);
 		_mint(teamWallet, _teamAmount); 
-		_mint(address(this), _liquidityPoolAmount);
+		_mint(address(this), _liquidityPoolAmount); 
+	}
+
+	function distributeInitialBalances() public onlyOwner {
+		_distributeInitialBalances();
 	}
 
 	function initLP() external onlyOwner {
 		require(!tradingOpen, "trading already open");
 
-		_distributeInitialBalances();
-
 		uint256 _contractETHBalance = address(this).balance;
 		require(_contractETHBalance > 0, "no eth in contract");
+
 		uint256 _contractTokenBalance = balanceOf(address(this));
 		require(_contractTokenBalance > 0, "no tokens");
 		address _uniLpAddr = IUniswapV2Factory(_uniswapV2Router.factory()).createPair(address(this), _uniswapV2Router.WETH());
@@ -127,9 +136,13 @@ contract TORC is ERC20, ERC20Burnable, ERC20Pausable, Ownable, ERC20Capped {
 		// _openTrading(); //trading will be open manually through enableTrading() function
 	}
 
+	function setUniswapRouter(address newRouter) external onlyOwner {
+		_uniswapV2Router = IUniswapV2Router02(newRouter);
+	}
+
 	function _approveRouter(uint256 _tokenAmount) internal {
-		if (allowance(address(this), _uniswapV2RouterAddress) < _tokenAmount) {			
-			approve(_uniswapV2RouterAddress, type(uint256).max);
+		if (allowance(address(this), uniswapRouterV2Address) < _tokenAmount) {			
+			approve(uniswapRouterV2Address, type(uint256).max); 
 		}
 	}
 
@@ -298,6 +311,30 @@ contract TORC is ERC20, ERC20Burnable, ERC20Pausable, Ownable, ERC20Capped {
 		}
 
 		super._update(from, to, _transferAmount);
+	}
+
+	function getUniswapRouterV2Address() public view returns (address) {
+		return uniswapRouterV2Address;
+	}
+
+	function getTaxAddress() public view returns (address) {
+		return taxWallet;
+	}
+
+	function getTreasuryAddress() public view returns (address) {
+		return treasuryWallet;
+	}
+
+	function getMarketingAddress() public view returns (address) {
+		return marketingWallet;
+	}
+
+	function getTeamAddress() public view returns (address) {
+		return teamWallet;
+	}
+
+	function getDevAddress() public view returns (address) {
+		return devWallet;
 	}
 	
 } 
