@@ -101,6 +101,9 @@ const config: HardhatUserConfig = {
   networks: {
     localhost: {
       url: "http://127.0.0.1:8545"
+    },
+    local: {
+      url: "http://127.0.0.1:8545"      
     },        
     hardhat: {
         mining: {
@@ -112,8 +115,7 @@ const config: HardhatUserConfig = {
         forking: {
           url: getChainRPC("mainnet"),
           blockNumber: 19564966
-        },
-        
+        },        
     },   
     mainnet: getChainConfig("mainnet"),
     rinkeby: getChainConfig("rinkeby"),
@@ -160,6 +162,18 @@ const config: HardhatUserConfig = {
   },
   solidity: {
     compilers: [
+      {
+        version: "0.4.24",
+        settings: {
+          metadata: {
+            bytecodeHash: "none",
+          },
+          optimizer: {
+            enabled: true,
+            runs: 800,
+          },
+        },
+      },
       {
         version: "0.8.9",
         settings: {

@@ -1,340 +1,418 @@
-//SPDX-License-Identifier: MIT 
-
+// SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Pausable.sol";
-import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
-import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Capped.sol";
-import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import "./libraries/Ownable.sol";
+import "./libraries/Address.sol";
 
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
 import '@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol';
 import '@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol';
 
-import "hardhat/console.sol";
 
-contract TORC is ERC20, ERC20Burnable, ERC20Pausable, Ownable, ERC20Capped { 
-	// string constant _name = "Torc"; 
-	// string constant _symbol = "TORC";
-	uint8 constant _decimals = 9;
-	uint256 constant _totalSupply = 432_000_000 * 10**_decimals;
-	uint256 constant _treasuryAmount = 100_000_000 * 10**_decimals;
-	uint256 constant _devFundAmount = 100_000_000 * 10**_decimals;
-	uint256 constant _marketingAmount = 100_000_000 * 10**_decimals;
-	uint256 constant _liquidityPoolAmount = 100_000_000 * 10**_decimals;
-	uint256 constant _teamAmount = 32_000_000 * 10**_decimals;
+contract TORC is Context, IERC20, Ownable {
+    using Address for address;
+    //Mapping section for better tracking.
+    mapping(address => uint256) private _tOwned;
+    mapping(address => mapping(address => uint256)) private _allowances;
+    mapping(address => bool) private _isExcludedFromFee;
 
-	address payable private taxWallet;
-	address payable public treasuryWallet;
-	address payable public marketingWallet;
-	address payable public teamWallet;
-	address payable public devWallet;
-	address payable public uniswapRouterV2Address;
+    //Loging and Event Information for better troubleshooting.
+    event Log(string, uint256);
+    event AuditLog(string, address);
+    event RewardLiquidityProviders(uint256 tokenAmount);
+    event SwapAndLiquifyEnabledUpdated(bool enabled);
+    event SwapAndLiquify(
+        uint256 tokensSwapped,
+        uint256 ethReceived,
+        uint256 tokensIntoLiqudity
+    );
+    event SwapTokensForETH(uint256 amountIn, address[] path);
+    //Supply Definition.
+    uint256 private _tTotal = 432_000_000 ether;
+    uint256 private _tFeeTotal;
+    //Token Definition.
+    string public constant name = "Torc";
+    string public constant symbol = "TORC";
+    uint8 public constant decimals = 18;
+    //Definition of Wallets for Marketing or team.
+    address payable public marketingWallet =
+        payable(0xD335c5E36F1B19AECE98b78e9827a9DF76eE29E6);
+    address payable public revenueWallet =
+        payable(0xE4eEc0C7e825f988aEEe7d05BE579519532E94E5);
+    //Dead Wallet for SAFU Contract
+    address public constant deadWallet =
+        0x000000000000000000000000000000000000dEaD;
 
-	mapping (address => bool) public excludedFromFees;
+    //Taxes Definition.
+    uint public buyFee = 4;
 
-	bool public tradingOpen;
-	uint256 public taxSwapMin; uint256 public taxSwapMax;
-	mapping (address => bool) private _isLiqPool;
-	uint8 constant _maxTaxRate = 5; 
-	uint8 public taxRateBuy; 
-	uint8 public taxRateSell;
+    uint256 public sellFee = 4;
+    uint public revenueFee = 1;
+    uint public marketingFee = 3;
 
-	bool public antiBotEnabled;
-	mapping (address => bool) public excludedFromAntiBot;
-	mapping (address => uint256) private _lastSwapBlock;
+    uint256 public marketingTokensCollected = 0;
 
-	bool private _inTaxSwap = false;
-	IUniswapV2Router02 private _uniswapV2Router;
-	modifier lockTaxSwap { 
-		_inTaxSwap = true; _; 
-		_inTaxSwap = false; 
-		}
+    uint256 public totalMarketingTokensCollected = 0;
 
-	event TokensAirdropped(uint256 totalWallets, uint256 totalTokens);
-	event TokensBurned(address indexed burnedByWallet, uint256 tokenAmount);
-	event TaxWalletChanged(address newTaxWallet);
-	event TaxRateChanged(uint8 newBuyTax, uint8 newSellTax);
+    uint256 public minimumTokensBeforeSwap = 10_000 ether;
 
-	constructor (address _uniswapV2RouterAddress, address _taxWallet, address _treasuryWallet, address _devWallet, address _marketingWallet, address _teamWallet) ERC20("Torc", "TORC") ERC20Capped(_totalSupply) Ownable(msg.sender) {
-		uniswapRouterV2Address = payable(_uniswapV2RouterAddress);
-		taxWallet = payable(_taxWallet);
-		treasuryWallet = payable(_treasuryWallet);
-		devWallet = payable(_devWallet);
-		marketingWallet = payable(_marketingWallet);
-		teamWallet = payable(_teamWallet);
+    //Oracle Price Update, Manual Process.
+    uint256 public swapOutput = 0;
+    //Router and Pair Configuration.
+    IUniswapV2Router02 public immutable uniswapV2Router;
+    address public immutable uniswapV2Pair;
+    address private immutable WETH;
+    //Tracking of Automatic Swap vs Manual Swap.
+    bool public inSwapAndLiquify;
+    bool public swapAndLiquifyEnabled = true;
 
-		taxSwapMin = _totalSupply * 10 / 10000;
-		taxSwapMax = _totalSupply * 50 / 10000;
-		_uniswapV2Router = IUniswapV2Router02(_uniswapV2RouterAddress);
-		excludedFromFees[_uniswapV2RouterAddress] = true; 
-
-		excludedFromAntiBot[msg.sender] = true;
-		excludedFromAntiBot[address(this)] = true;
-
-		excludedFromFees[msg.sender] = true;
-		excludedFromFees[address(this)] = true;
-		excludedFromFees[address(0)] = true;
-		excludedFromFees[_taxWallet] = true;
-		excludedFromFees[_treasuryWallet] = true;
-		excludedFromFees[_devWallet] = true;
-		excludedFromFees[_marketingWallet] = true;
-		excludedFromFees[_teamWallet] = true;
-
-		taxRateBuy = 3;
-		taxRateSell = 3;
-
-	}
-
-	receive() external payable {}
-
-	 function pause() public onlyOwner {
-        _pause();
+    modifier lockTheSwap() {
+        inSwapAndLiquify = true;
+        _;
+        inSwapAndLiquify = false;
     }
 
-    function unpause() public onlyOwner {
-        _unpause();
-    }
-	
-	function transfer(address recipient, uint256 amount) public override returns (bool) {
-		require(_checkTradingOpen(), "Trading not open");
-		super.transfer(recipient, amount);
-	}
+    constructor() {
+        _tOwned[_msgSender()] = _tTotal;
+        address currentRouter;
+        //Adding Variables for all the routers for easier deployment for our customers.
+        if (block.chainid == 56) {
+            currentRouter = 0x10ED43C718714eb63d5aA57B78B54704E256024E; // PCS Router
+        } else if (block.chainid == 97) {
+            currentRouter = 0xD99D1c33F9fC3444f8101754aBC46c52416550D1; // PCS Testnet
+        } else if (block.chainid == 43114) {
+            currentRouter = 0x60aE616a2155Ee3d9A68541Ba4544862310933d4; //Avax Mainnet
+        } else if (block.chainid == 137) {
+            currentRouter = 0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff; //Polygon Ropsten
+        } else if (block.chainid == 6066) {
+            currentRouter = 0x4169Db906fcBFB8b12DbD20d98850Aee05B7D889; //Tres Leches Chain
+        } else if (block.chainid == 250) {
+            currentRouter = 0xF491e7B69E4244ad4002BC14e878a34207E38c29; //SpookySwap FTM
+        } else if (block.chainid == 42161) {
+            currentRouter = 0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506; //Arbitrum Sushi
+		} else if (block.chainid == 11155111) {
+			currentRouter = 0xC532a74256D3Db42D0Bf7a0400fEFDbad7694008; //Sepolia Testnet
+        } else if (
+            block.chainid == 1 || block.chainid == 4 || block.chainid == 5 || block.chainid == 1337 || block.chainid == 14075
+        ) {
+            currentRouter = 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D; //Mainnet
+        } else {
+            revert("You're not Blade");
+        }
 
-	function transferFrom(address sender, address recipient, uint256 amount) public override returns (bool) {
-		require(_checkTradingOpen(), "Trading not open");
-		super.transferFrom(sender, recipient, amount); 
-	}
+        //End of Router Variables.
+        //Create Pair in the contructor, this may fail on some blockchains and can be done in a separate line if needed.
+        IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(currentRouter);
+        WETH = _uniswapV2Router.WETH();
+        uniswapV2Pair = IUniswapV2Factory(_uniswapV2Router.factory())
+            .createPair(address(this), WETH);
+        uniswapV2Router = _uniswapV2Router;
+        _isExcludedFromFee[owner()] = true;
+        _isExcludedFromFee[address(this)] = true;
 
-	function _distributeInitialBalances() internal {
-		_mint(devWallet, _devFundAmount);
-		_mint(treasuryWallet, _treasuryAmount);
-		_mint(marketingWallet, _marketingAmount);
-		_mint(teamWallet, _teamAmount); 
-		_mint(address(this), _liquidityPoolAmount); 
-	}
-
-	function distributeInitialBalances() public onlyOwner {
-		_distributeInitialBalances();
-	}
-
-	function initLP() external onlyOwner {
-		require(!tradingOpen, "trading already open");
-
-		uint256 _contractETHBalance = address(this).balance;
-		require(_contractETHBalance > 0, "no eth in contract");
-
-		uint256 _contractTokenBalance = balanceOf(address(this));
-		require(_contractTokenBalance > 0, "no tokens");
-		address _uniLpAddr = IUniswapV2Factory(_uniswapV2Router.factory()).createPair(address(this), _uniswapV2Router.WETH());
-		_isLiqPool[_uniLpAddr] = true;
-
-		_approveRouter(_contractTokenBalance);
-		_addLiquidity(_contractTokenBalance, _contractETHBalance, false);
-
-		// _openTrading(); //trading will be open manually through enableTrading() function
-	}
-
-	function setUniswapRouter(address newRouter) external onlyOwner {
-		_uniswapV2Router = IUniswapV2Router02(newRouter);
-	}
-
-	function _approveRouter(uint256 _tokenAmount) internal {
-		if (allowance(address(this), uniswapRouterV2Address) < _tokenAmount) {			
-			approve(uniswapRouterV2Address, type(uint256).max); 
-		}
-	}
-
-	function _addLiquidity(uint256 _tokenAmount, uint256 _ethAmountWei, bool autoburn) internal {
-		address lpTokenRecipient = address(0);
-		if (!autoburn) { 
-			lpTokenRecipient = owner();  
-		}
-		_uniswapV2Router.addLiquidityETH {value: _ethAmountWei} (address(this), _tokenAmount, 0, 0, lpTokenRecipient, block.timestamp);
-	}
-
-    function enableTrading() external onlyOwner {
-        _openTrading();
+        emit Transfer(address(0), _msgSender(), _tTotal);
     }
 
-	function _openTrading() internal {
-        require(!tradingOpen, "trading already open");
-		tradingOpen = true;
+    //Readable Functions.
+    function totalSupply() public view override returns (uint256) {
+        return _tTotal;
+    }
+
+    function balanceOf(address account) public view override returns (uint256) {
+        return _tOwned[account];
+    }
+
+    //ERC 20 Standard Transfer Functions
+    function transfer(
+        address recipient,
+        uint256 amount
+    ) public override returns (bool) {
+        _transfer(_msgSender(), recipient, amount);
+        return true;
+    }
+
+    //ERC 20 Standard Allowance Function
+    function allowance(
+        address _owner,
+        address spender
+    ) public view override returns (uint256) {
+        return _allowances[_owner][spender];
+    }
+
+    //ERC 20 Standard Approve Function
+    function approve(
+        address spender,
+        uint256 amount
+    ) public override returns (bool) {
+        _approve(_msgSender(), spender, amount);
+        return true;
+    }
+
+    //ERC 20 Standard Transfer From
+    function transferFrom(
+        address sender,
+        address recipient,
+        uint256 amount
+    ) public override returns (bool) {
+        uint currentAllowance = _allowances[sender][_msgSender()];
+        require(
+            currentAllowance >= amount,
+            "ERC20: transfer amount exceeds allowance"
+        );
+        _transfer(sender, recipient, amount);
+        _approve(sender, _msgSender(), currentAllowance - amount);
+        return true;
+    }
+
+    //ERC 20 Standard increase Allowance
+    function increaseAllowance(
+        address spender,
+        uint256 addedValue
+    ) public virtual returns (bool) {
+        _approve(
+            _msgSender(),
+            spender,
+            _allowances[_msgSender()][spender] + addedValue
+        );
+        return true;
+    }
+
+    //ERC 20 Standard decrease Allowance
+    function decreaseAllowance(
+        address spender,
+        uint256 subtractedValue
+    ) public virtual returns (bool) {
+        _approve(
+            _msgSender(),
+            spender,
+            _allowances[_msgSender()][spender] - subtractedValue
+        );
+        return true;
+    }
+
+    //Approve Function
+    function _approve(address _owner, address spender, uint256 amount) private {
+        require(_owner != address(0), "ERC20: approve from the zero address");
+        require(spender != address(0), "ERC20: approve to the zero address");
+
+        _allowances[_owner][spender] = amount;
+        emit Approval(_owner, spender, amount);
+    }
+
+    //Transfer function, validate correct wallet structure, take fees, and other custom taxes are done during the transfer.
+    function _transfer(address from, address to, uint256 amount) private {
+        require(from != address(0), "ERC20: transfer from the zero address");
+        require(to != address(0), "ERC20: transfer to the zero address");
+        require(amount > 0, "Transfer amount must be greater than zero");
+        require(_tOwned[from] >= amount, "ERC20: transfer amount exceeds balance");
+
+        //Adding logic for automatic swap.
+        uint256 contractTokenBalance = balanceOf(address(this));
+        bool overMinimumTokenBalance = contractTokenBalance >= minimumTokensBeforeSwap;
+        uint fee = 0;
+        //if any account belongs to _isExcludedFromFee account then remove the fee
+        if (
+            !inSwapAndLiquify &&
+            from != uniswapV2Pair &&
+            overMinimumTokenBalance &&
+            swapAndLiquifyEnabled
+        ) {
+            swapAndLiquify();
+        }
+        if (to == uniswapV2Pair && !_isExcludedFromFee[from]) {
+            fee = (sellFee * amount) / 100;
+        }
+        if (from == uniswapV2Pair && !_isExcludedFromFee[to]) {
+            fee = (buyFee * amount) / 100;
+        }
+        amount -= fee;
+        if (fee > 0) {
+            _tokenTransfer(from, address(this), fee);
+            marketingTokensCollected += fee;
+            totalMarketingTokensCollected += fee;
+        }
+        _tokenTransfer(from, to, amount);
+    }
+
+    //Swap Tokens for BNB or to add liquidity either automatically or manual, by default this is set to manual.
+    //Corrected newBalance bug, it sending bnb to wallet and any remaining is on contract and can be recoverred.
+    function swapAndLiquify() public lockTheSwap {
+        uint256 totalTokens = balanceOf(address(this));
+        swapTokensForEth(totalTokens);
+        uint ethBalance = address(this).balance;
+        uint totalFees = revenueFee + marketingFee;
+        if (totalFees == 0) totalFees = 1;
+        uint revenueAmount = (ethBalance * revenueFee) / totalFees;
+        ethBalance -= revenueAmount;
+        transferToAddressETH(revenueWallet, revenueAmount);
+        transferToAddressETH(marketingWallet, ethBalance);
+
+        marketingTokensCollected = 0;
+    }
+
+    //swap for eth is to support the converstion of tokens to weth during swapandliquify this is a supporting function
+    function swapTokensForEth(uint256 tokenAmount) private {
+        // generate the uniswap pair path of token -> weth
+        address[] memory path = new address[](2);
+        path[0] = address(this);
+        path[1] = WETH;
+        _approve(address(this), address(uniswapV2Router), tokenAmount);
+
+        // make the swap
+        uniswapV2Router.swapExactTokensForETHSupportingFeeOnTransferTokens(
+            tokenAmount,
+            0, // accept any amount of ETH
+            path,
+            address(this), // The contract
+            block.timestamp
+        );
+
+        emit SwapTokensForETH(tokenAmount, path);
+    }
+
+    //ERC 20 standard transfer, only added if taking fees to countup the amount of fees for better tracking and split purpose.
+    function _tokenTransfer(
+        address sender,
+        address recipient,
+        uint256 amount
+    ) private {
+        _tOwned[sender] -= amount;
+        _tOwned[recipient] += amount;
+
+        emit Transfer(sender, recipient, amount);
+    }
+
+    function isExcludedFromFee(address account) external view returns (bool) {
+        return _isExcludedFromFee[account];
+    }
+
+    //exclude wallets from fees, this is needed for launch or other contracts.
+    function excludeFromFee(address account) external onlyOwner {
+        _isExcludedFromFee[account] = true;
+        emit AuditLog(
+            "We have excluded the following walled in fees:",
+            account
+        );
+    }
+
+    //include wallet back in fees.
+    function includeInFee(address account) external onlyOwner {
+        _isExcludedFromFee[account] = false;
+        emit AuditLog(
+            "We have including the following walled in fees:",
+            account
+        );
+    }
+
+    //Automatic Swap Configuration.
+    function setTokensToSwap(
+        uint256 _minimumTokensBeforeSwap
+    ) external onlyOwner {
+        require(
+            _minimumTokensBeforeSwap >= 100 ether,
+            "You need to enter more than 100 tokens."
+        );
+        minimumTokensBeforeSwap = _minimumTokensBeforeSwap;
+        emit Log(
+            "We have updated minimunTokensBeforeSwap to:",
+            minimumTokensBeforeSwap
+        );
+    }
+
+    function setSwapAndLiquifyEnabled(bool _enabled) external onlyOwner {
+        require(swapAndLiquifyEnabled != _enabled, "Value already set");
+        swapAndLiquifyEnabled = _enabled;
+        emit SwapAndLiquifyEnabledUpdated(_enabled);
+    }
+
+    //set a new marketing wallet.
+    function setMarketingWallet(address _marketingWallet) external onlyOwner {
+        require(_marketingWallet != address(0), "setMarketingWallet: ZERO");
+        marketingWallet = payable(_marketingWallet);
+        emit AuditLog("We have Updated the MarketingWallet:", marketingWallet);
+    }
+
+    //set a new team wallet.
+    function setRevenueWallet(address _revenueWallet) external onlyOwner {
+        require(_revenueWallet != address(0), "setRevenueWallet: ZERO");
+        revenueWallet = payable(_revenueWallet);
+        emit AuditLog("We have Updated the RarketingWallet:", revenueWallet);
+    }
+
+
+
+    function transferToAddressETH(
+        address payable recipient,
+        uint256 amount
+    ) private {
+        if (amount == 0) return;
+        (bool succ, ) = recipient.call{value: amount}("");
+        require(succ, "Transfer failed.");
+    }
+
+    //to recieve ETH from uniswapV2Router when swaping
+    receive() external payable {}
+
+    /////---fallback--////
+    //This cannot be removed as is a fallback to the swapAndLiquify
+    event SwapETHForTokens(uint256 amountIn, address[] path);
+
+    function swapETHForTokens(uint256 amount) private {
+        // generate the uniswap pair path of token -> weth
+        address[] memory path = new address[](2);
+        path[0] = WETH;
+        path[1] = address(this);
+        // make the swap
+        uniswapV2Router.swapExactETHForTokensSupportingFeeOnTransferTokens{
+            value: amount
+        }(
+            swapOutput, // accept any amount of Tokens
+            path,
+            deadWallet, // Burn address
+            block.timestamp + 300
+        );
+        emit SwapETHForTokens(amount, path);
+    }
+
+    // Withdraw ETH that's potentially stuck in the Contract
+    function recoverETHfromContract() external onlyOwner {
+        uint ethBalance = address(this).balance;
+        (bool succ, ) = payable(marketingWallet).call{value: ethBalance}("");
+        require(succ, "Transfer failed");
+        emit AuditLog(
+            "We have recover the stock eth from contract.",
+            marketingWallet
+        );
+    }
+
+    // Withdraw ERC20 tokens that are potentially stuck in Contract
+    function recoverTokensFromContract(
+        address _tokenAddress,
+        uint256 _amount
+    ) external onlyOwner {
+        require(
+            _tokenAddress != address(this),
+            "Owner can't claim contract's balance of its own tokens"
+        );
+        bool succ = IERC20(_tokenAddress).transfer(marketingWallet, _amount);
+        require(succ, "Transfer failed");
+        emit Log("We have recovered tokens from contract:", _amount);
+    }
+
+	function addLiquidity() external onlyOwner {
+		uint256 tokenAmount = balanceOf(address(this));
+		uint256 ethAmount = address(this).balance;
+		_approve(address(this), address(uniswapV2Router), tokenAmount);
+		uniswapV2Router.addLiquidityETH{value: ethAmount}(
+			uniswapV2Pair,
+			tokenAmount,
+			0,
+			0,
+			_msgSender(),
+			block.timestamp
+		);
 	}
 
-	
-	function _checkTradingOpen() private view returns (bool){
-		bool checkResult = false;
-		if ( tradingOpen ) { 
-			checkResult = true; 
-		} else if ( tx.origin == owner() ) { 
-			checkResult = true; 
-		} 
-		return checkResult;
-	}
-
-	modifier isTradingOpen() {
-		require(_checkTradingOpen(), "Trading not open");
-		_;
-	}
-
-	function _calculateTax(address sender, address recipient, uint256 amount) internal view returns (uint256) {
-		uint256 taxAmount;
-		if ( !tradingOpen || excludedFromFees[sender] || excludedFromFees[recipient] ) { 
-			taxAmount = 0; 
-		}
-		else if ( _isLiqPool[sender] ) { 
-			taxAmount = amount * taxRateBuy / 100; 
-		}
-		else if ( _isLiqPool[recipient] ) {
-			taxAmount = amount * taxRateSell / 100; 
-		}
-		else { 
-			taxAmount = 0;
-		}
-		return taxAmount;
-	} 
-
-	function checkAntiBot(address sender, address recipient) internal {
-		if ( _isLiqPool[sender] && !excludedFromAntiBot[recipient] ) { //buy transactions
-			require(_lastSwapBlock[recipient] < block.number, "AntiBot triggered");
-			_lastSwapBlock[recipient] = block.number;
-		} else if ( _isLiqPool[recipient] && !excludedFromAntiBot[sender] ) { //sell transactions
-			require(_lastSwapBlock[sender] < block.number, "AntiBot triggered");
-			_lastSwapBlock[sender] = block.number;
-		}
-	}
-
-	function enableAntiBot(bool isEnabled) external onlyOwner {
-		antiBotEnabled = isEnabled;
-	}
-
-	function excludeFromAntiBot(address wallet, bool isExcluded) external onlyOwner {
-		if (!isExcluded) { require(wallet != address(this) && wallet != owner(), "This address must be excluded" ); }
-		excludedFromAntiBot[wallet] = isExcluded;
-	}
-
-	function excludeFromFees(address wallet, bool isExcluded) external onlyOwner {
-		if (isExcluded) { require(wallet != address(this) && wallet != owner(), "Cannot enforce fees for this address"); }
-		excludedFromFees[wallet] = isExcluded;
-	}
-
-	function adjustTaxRate(uint8 newBuyTax, uint8 newSellTax) external onlyOwner {
-		require(newBuyTax <= _maxTaxRate && newSellTax <= _maxTaxRate, "Tax too high");
-		//set new tax rate percentage - cannot be higher than the default rate 5%
-		taxRateBuy = newBuyTax;
-		taxRateSell = newSellTax;
-		emit TaxRateChanged(newBuyTax, newSellTax);
-	}
-  
-	function setTaxWallet(address newTaxWallet) external onlyOwner {
-		taxWallet = payable(newTaxWallet);
-		excludedFromFees[newTaxWallet] = true;
-		emit TaxWalletChanged(newTaxWallet);
-	}
-
-	function taxSwapSettings(uint32 minValue, uint32 minDivider, uint32 maxValue, uint32 maxDivider) external onlyOwner {
-		taxSwapMin = _totalSupply * minValue / minDivider;
-		taxSwapMax = _totalSupply * maxValue / maxDivider;
-		require(taxSwapMax>=taxSwapMin, "MinMax error");
-		require(taxSwapMax>_totalSupply / 10000, "Upper threshold too low");
-		require(taxSwapMax<_totalSupply * 2 / 100, "Upper threshold too high");
-	}
-
-	function _swapTaxAndDistributeEth() private lockTaxSwap {
-		uint256 _taxTokensAvailable = balanceOf(address(this));
-		if ( _taxTokensAvailable >= taxSwapMin && tradingOpen ) {
-			if ( _taxTokensAvailable >= taxSwapMax ) { _taxTokensAvailable = taxSwapMax; }
-			if ( _taxTokensAvailable > 10**_decimals) {
-				_swapTaxTokensForEth(_taxTokensAvailable);
-				uint256 _contractETHBalance = address(this).balance;
-				if (_contractETHBalance > 0) { _distributeTaxEth(_contractETHBalance); }
-			}
-			
-		}
-	}
-
-	function _swapTaxTokensForEth(uint256 _tokenAmount) private {
-		_approveRouter(_tokenAmount);
-		address[] memory path = new address[](2);
-		path[0] = address(this);
-		path[1] = _uniswapV2Router.WETH();
-		_uniswapV2Router.swapExactTokensForETHSupportingFeeOnTransferTokens(_tokenAmount,0,path,address(this),block.timestamp);
-	}
-
-	function _distributeTaxEth(uint256 _amount) private {
-		taxWallet.transfer(_amount);
-	}
-
-	function taxTokensSwap() external onlyOwner {
-		uint256 taxTokenBalance = balanceOf(address(this));
-		require(taxTokenBalance > 0, "No tokens");
-		_swapTaxTokensForEth(taxTokenBalance);
-	}
-
-	function taxEthSend() external onlyOwner { 
-		uint256 _contractEthBalance = address(this).balance;
-		require(_contractEthBalance > 0, "No ETH in contract to distribute");
-		_distributeTaxEth(_contractEthBalance); 
-	}
-
-	function _update(address from, address to, uint256 value) internal override(ERC20, ERC20Capped, ERC20Pausable) {
-		// Check for liquidity pool involvement or trading status upfront
-		bool isLiqPoolInteraction = _isLiqPool[from] || _isLiqPool[to];
-		bool shouldSwapTax = isLiqPoolInteraction || (!_inTaxSwap && _isLiqPool[to] && tradingOpen);
-
-		// Perform tax swap and ETH distribution if necessary
-		if (shouldSwapTax) {
-			_swapTaxAndDistributeEth();
-		}
-
-		// Proceed with trading and antibot checks if trading is open
-		if (tradingOpen && antiBotEnabled) {
-			checkAntiBot(from, to);			
-		}
-
-		// Initialize transfer amount to the full value by default
-		uint256 _transferAmount = value;
-
-		// Only calculate and apply tax if neither 'from' nor 'to' is the ZERO_ADDRESS
-		if (!excludedFromFees[from] && !excludedFromFees[to]) {
-			uint256 _taxAmount = _calculateTax(from, to, value);
-			
-			// Adjust the transfer amount based on the calculated tax
-			_transferAmount -= _taxAmount;
-
-			// If there's any tax amount, transfer it from 'from' to this contract
-			if (_taxAmount > 0) {
-				_update(from, address(this), _taxAmount);
-			}
-		}
-
-		super._update(from, to, _transferAmount);
-	}
-
-	function getUniswapRouterV2Address() public view returns (address) {
-		return uniswapRouterV2Address;
-	}
-
-	function getTaxAddress() public view returns (address) {
-		return taxWallet;
-	}
-
-	function getTreasuryAddress() public view returns (address) {
-		return treasuryWallet;
-	}
-
-	function getMarketingAddress() public view returns (address) {
-		return marketingWallet;
-	}
-
-	function getTeamAddress() public view returns (address) {
-		return teamWallet;
-	}
-
-	function getDevAddress() public view returns (address) {
-		return devWallet;
-	}
-	
-} 
+    //Final Dev notes, this code has been tested and audited, last update to code was done to re-add swapandliquify function to the transfer as option, is recommended to be used manually instead of automatic.
+}
