@@ -12,6 +12,7 @@ import '@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol';
 
 contract TORC is Context, IERC20, Ownable {
     using Address for address;
+
     //Mapping section for better tracking.
     mapping(address => uint256) private _tOwned;
     mapping(address => mapping(address => uint256)) private _allowances;
@@ -20,7 +21,6 @@ contract TORC is Context, IERC20, Ownable {
     //Loging and Event Information for better troubleshooting.
     event Log(string, uint256);
     event AuditLog(string, address);
-    event RewardLiquidityProviders(uint256 tokenAmount);
     event SwapAndLiquifyEnabledUpdated(bool enabled);
     event SwapAndLiquify(
         uint256 tokensSwapped,
@@ -28,44 +28,36 @@ contract TORC is Context, IERC20, Ownable {
         uint256 tokensIntoLiqudity
     );
     event SwapTokensForETH(uint256 amountIn, address[] path);
+
     //Supply Definition.
     uint256 private _tTotal = 432_000_000 ether;
     uint256 private _tFeeTotal;
+
     //Token Definition.
     string public constant name = "Torc";
     string public constant symbol = "TORC";
     uint8 public constant decimals = 18;
+
     //Definition of Wallets for Marketing or team.
-    address payable public marketingWallet =
-        payable(0xD335c5E36F1B19AECE98b78e9827a9DF76eE29E6);
-    address payable public revenueWallet =
-        payable(0xE4eEc0C7e825f988aEEe7d05BE579519532E94E5);
-    //Dead Wallet for SAFU Contract
-    address public constant deadWallet =
-        0x000000000000000000000000000000000000dEaD;
+    address payable public treasuryWallet = payable(0xD335c5E36F1B19AECE98b78e9827a9DF76eE29E6);
+    address payable public devWallet = payable(0xE4eEc0C7e825f988aEEe7d05BE579519532E94E5);
+    address payable public teamWallet = payable(0x000000000000000000000000000000000000dEaD); 
+    address payable public ownerWallet = payable(0x9767a2B120614F526e923DAAF89843EC7C2292d7);
 
     //Taxes Definition.
-    uint public buyFee = 4;
-
-    uint256 public sellFee = 4;
-    uint public revenueFee = 1;
-    uint public marketingFee = 3;
-
-    uint256 public marketingTokensCollected = 0;
-
-    uint256 public totalMarketingTokensCollected = 0;
-
+    uint public buyFee = 300; // 3%
+    uint256 public sellFee = 300; // 3%
     uint256 public minimumTokensBeforeSwap = 10_000 ether;
 
-    //Oracle Price Update, Manual Process.
-    uint256 public swapOutput = 0;
     //Router and Pair Configuration.
     IUniswapV2Router02 public immutable uniswapV2Router;
     address public immutable uniswapV2Pair;
     address private immutable WETH;
+
     //Tracking of Automatic Swap vs Manual Swap.
     bool public inSwapAndLiquify;
     bool public swapAndLiquifyEnabled = true;
+    bool public tradingEnabled = false;
 
     modifier lockTheSwap() {
         inSwapAndLiquify = true;
@@ -74,7 +66,11 @@ contract TORC is Context, IERC20, Ownable {
     }
 
     constructor() {
-        _tOwned[_msgSender()] = _tTotal;
+        _tOwned[_msgSender()] = 172_800_000 ether; // 40% of the total supply, for Liquidity Pool
+        _tOwned[treasuryWallet] = 129_600_000 ether; // 30% of the total supply
+        _tOwned[devWallet] = 86_400_000 ether; // 20% of the total supply
+        _tOwned[teamWallet] = 43_200_000 ether; // 10% of the total supply
+
         address currentRouter;
         //Adding Variables for all the routers for easier deployment for our customers.
         if (block.chainid == 56) {
@@ -206,6 +202,9 @@ contract TORC is Context, IERC20, Ownable {
         require(to != address(0), "ERC20: transfer to the zero address");
         require(amount > 0, "Transfer amount must be greater than zero");
         require(_tOwned[from] >= amount, "ERC20: transfer amount exceeds balance");
+        if (!tradingEnabled) {
+            require(from != uniswapV2Pair && to != uniswapV2Pair, "Trading is disabled");
+        }
 
         //Adding logic for automatic swap.
         uint256 contractTokenBalance = balanceOf(address(this));
@@ -221,16 +220,14 @@ contract TORC is Context, IERC20, Ownable {
             swapAndLiquify();
         }
         if (to == uniswapV2Pair && !_isExcludedFromFee[from]) {
-            fee = (sellFee * amount) / 100;
+            fee = (sellFee * amount) / 10_000;
         }
         if (from == uniswapV2Pair && !_isExcludedFromFee[to]) {
-            fee = (buyFee * amount) / 100;
+            fee = (buyFee * amount) / 10_000;
         }
         amount -= fee;
         if (fee > 0) {
-            _tokenTransfer(from, address(this), fee);
-            marketingTokensCollected += fee;
-            totalMarketingTokensCollected += fee;
+            _tokenTransfer(from, address(this), fee);            
         }
         _tokenTransfer(from, to, amount);
     }
@@ -240,15 +237,9 @@ contract TORC is Context, IERC20, Ownable {
     function swapAndLiquify() public lockTheSwap {
         uint256 totalTokens = balanceOf(address(this));
         swapTokensForEth(totalTokens);
-        uint ethBalance = address(this).balance;
-        uint totalFees = revenueFee + marketingFee;
-        if (totalFees == 0) totalFees = 1;
-        uint revenueAmount = (ethBalance * revenueFee) / totalFees;
-        ethBalance -= revenueAmount;
-        transferToAddressETH(revenueWallet, revenueAmount);
-        transferToAddressETH(marketingWallet, ethBalance);
 
-        marketingTokensCollected = 0;
+        uint ethBalance = address(this).balance;
+        transferToAddressETH(treasuryWallet, ethBalance);
     }
 
     //swap for eth is to support the converstion of tokens to weth during swapandliquify this is a supporting function
@@ -310,8 +301,8 @@ contract TORC is Context, IERC20, Ownable {
         uint256 _minimumTokensBeforeSwap
     ) external onlyOwner {
         require(
-            _minimumTokensBeforeSwap >= 100 ether,
-            "You need to enter more than 100 tokens."
+            _minimumTokensBeforeSwap >= 1,
+            "You need to enter more than 1 tokens."
         );
         minimumTokensBeforeSwap = _minimumTokensBeforeSwap;
         emit Log(
@@ -327,17 +318,17 @@ contract TORC is Context, IERC20, Ownable {
     }
 
     //set a new marketing wallet.
-    function setMarketingWallet(address _marketingWallet) external onlyOwner {
-        require(_marketingWallet != address(0), "setMarketingWallet: ZERO");
-        marketingWallet = payable(_marketingWallet);
-        emit AuditLog("We have Updated the MarketingWallet:", marketingWallet);
+    function setTreasuryWallet(address _treasuryWallet) external onlyOwner {
+        require(_treasuryWallet != address(0), "setTreasuryWallet: ZERO");
+        treasuryWallet = payable(_treasuryWallet);
+        emit AuditLog("We have Updated the TreasuryWallet:", treasuryWallet);
     }
 
     //set a new team wallet.
-    function setRevenueWallet(address _revenueWallet) external onlyOwner {
-        require(_revenueWallet != address(0), "setRevenueWallet: ZERO");
-        revenueWallet = payable(_revenueWallet);
-        emit AuditLog("We have Updated the RarketingWallet:", revenueWallet);
+    function setDevWallet(address _devWallet) external onlyOwner {
+        require(_devWallet != address(0), "setDevWallet: ZERO");
+        devWallet = payable(_devWallet);
+        emit AuditLog("We have Updated the DevWallet:", devWallet);
     }
 
 
@@ -354,35 +345,14 @@ contract TORC is Context, IERC20, Ownable {
     //to recieve ETH from uniswapV2Router when swaping
     receive() external payable {}
 
-    /////---fallback--////
-    //This cannot be removed as is a fallback to the swapAndLiquify
-    event SwapETHForTokens(uint256 amountIn, address[] path);
-
-    function swapETHForTokens(uint256 amount) private {
-        // generate the uniswap pair path of token -> weth
-        address[] memory path = new address[](2);
-        path[0] = WETH;
-        path[1] = address(this);
-        // make the swap
-        uniswapV2Router.swapExactETHForTokensSupportingFeeOnTransferTokens{
-            value: amount
-        }(
-            swapOutput, // accept any amount of Tokens
-            path,
-            deadWallet, // Burn address
-            block.timestamp + 300
-        );
-        emit SwapETHForTokens(amount, path);
-    }
-
     // Withdraw ETH that's potentially stuck in the Contract
     function recoverETHfromContract() external onlyOwner {
         uint ethBalance = address(this).balance;
-        (bool succ, ) = payable(marketingWallet).call{value: ethBalance}("");
+        (bool succ, ) = payable(treasuryWallet).call{value: ethBalance}("");
         require(succ, "Transfer failed");
         emit AuditLog(
             "We have recover the stock eth from contract.",
-            marketingWallet
+            treasuryWallet
         );
     }
 
@@ -395,24 +365,10 @@ contract TORC is Context, IERC20, Ownable {
             _tokenAddress != address(this),
             "Owner can't claim contract's balance of its own tokens"
         );
-        bool succ = IERC20(_tokenAddress).transfer(marketingWallet, _amount);
+        bool succ = IERC20(_tokenAddress).transfer(treasuryWallet, _amount);
         require(succ, "Transfer failed");
         emit Log("We have recovered tokens from contract:", _amount);
     }
-
-	function addLiquidity() external onlyOwner {
-		uint256 tokenAmount = balanceOf(address(this));
-		uint256 ethAmount = address(this).balance;
-		_approve(address(this), address(uniswapV2Router), tokenAmount);
-		uniswapV2Router.addLiquidityETH{value: ethAmount}(
-			uniswapV2Pair,
-			tokenAmount,
-			0,
-			0,
-			_msgSender(),
-			block.timestamp
-		);
-	}
 
     //Final Dev notes, this code has been tested and audited, last update to code was done to re-add swapandliquify function to the transfer as option, is recommended to be used manually instead of automatic.
 }
