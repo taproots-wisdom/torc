@@ -56,8 +56,8 @@ contract TORC is Context, IERC20, Ownable {
 
     //Tracking of Automatic Swap vs Manual Swap.
     bool public inSwapAndLiquify;
-    bool public swapAndLiquifyEnabled = true;
-    bool public tradingEnabled = false;
+    bool public swapAndLiquifyEnabled = false;
+    bool public tradingEnabled = false; 
 
     modifier lockTheSwap() {
         inSwapAndLiquify = true;
@@ -331,7 +331,11 @@ contract TORC is Context, IERC20, Ownable {
         emit AuditLog("We have Updated the DevWallet:", devWallet);
     }
 
-
+    function setTradingEnabled(bool _enabled) external onlyOwner {
+        require(tradingEnabled != _enabled, "Value already set");
+        tradingEnabled = _enabled;
+        emit Log("Trading Enabled:", tradingEnabled ? 1 : 0); 
+    }
 
     function transferToAddressETH(
         address payable recipient,
