@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Swap ETH for TORC</title>
+    <script src="https://cdn.ethers.io/lib/ethers-5.2.umd.min.js" type="application/javascript"></script>
+</head>
+<body>
+    <label for="ethAmount">Enter ETH amount:</label>
+    <input id="ethAmount" type="text" placeholder="Amount in ETH">
+    <button id="connectWallet">Connect Wallet</button>
+    <button id="buyTorc" disabled>Buy TORC</button>
+
+    <script>
+        // Declare a variable to store the signer globally
+        let signer;
+        let routerContract;
+
+        // Define the router address and ABI
+        const routerAddress = '0xC532a74256D3Db42D0Bf7a0400fEFDbad7694008';
+        const tokenAddress = '0xac8b8faAD68867C125F72384e31D07daE40D6fcd';
+        const routerABI = [
+            "function swapExactETHForTokens(uint amountOutMin, address[] calldata path, address to, uint deadline) external payable returns (uint[] memory amounts)",
+            "function WETH() external pure returns (address)"
+        ];
+
+        document.getElementById('connectWallet').addEventListener('click', async () => {
+            if (typeof window.ethereum !== 'undefined') {
+                const provider = new ethers.providers.Web3Provider(window.ethereum);
+                try {
+                    await provider.send("eth_requestAccounts", []);
+                    signer = provider.getSigner();
+                    console.log('Wallet connected:', await signer.getAddress());
+
+                    routerContract = new ethers.Contract(routerAddress, routerABI, signer);
+                    document.getElementById('buyTorc').disabled = false;
+                } catch (error) {
+                    console.error('Error connecting to MetaMask:', error);
+                }
+            } else {
+                alert('MetaMask is not available. Please install it to use this feature.');
+            }
+        });
+
+        document.getElementById('buyTorc').addEventListener('click', async () => {
+            try {
+                if (!routerContract) {
+                    throw new Error("Contract not initialized. Please connect your wallet first.");
+                }
+                const wethAddress = await routerContract.WETH();
+                const amountInput = document.getElementById('ethAmount').value;
+                const amountETH = ethers.utils.parseEther(amountInput || "0.0001"); // Use input value or default to 0.0001 ETH if empty
+                const path = [wethAddress, tokenAddress];
+                const to = await signer.getAddress();
+                const deadline = Math.floor((new Date()).getTime() / 1000) + 100; // UNIX timestamp + 100 seconds
+                const tx = await routerContract.swapExactETHForTokens(
+                    0, // Normally you'd want to use slippage protection
+                    path,
+                    to,
+                    deadline,
+                    { value: amountETH }
+                );
+                await tx.wait();
+                console.log('Transaction Hash:', tx.hash);
+                alert('TORC purchased successfully!');
+            } catch (error) {
+                console.error('Transaction failed:', error);
+                alert('Failed to buy TORC.');
+            }
+        });
+    </script>
+</body>
+</html>

@@ -62,7 +62,7 @@ async function setTradingEnabled() {
 async function addLiquidity() {
     const amountTokenDesired = ethers.parseUnits("100000", 18); // Update decimal as per your token
     const to = '0x9767a2B120614F526e923DAAF89843EC7C2292d7';
-    const deadline = (await provider.getBlockNumber()) + 10000000000; // Setting deadline to the next block
+    const deadline = Math.floor((new Date()).getTime() / 1000) + 100; // UNIX timestamp + 100 seconds
 
     const tx = await routerContract.addLiquidityETH(
         tokenAddress,

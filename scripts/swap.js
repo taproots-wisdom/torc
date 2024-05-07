@@ -42,7 +42,7 @@ async function swapETHForTokens() {
     const wethAddress = await routerContract.WETH(); // Retrieving the WETH address dynamically
     const path = [wethAddress, tokenAddress]; // AddressZero is typically used to denote ETH in Uniswap paths
     const to = wallet.address; // Where the tokens will be sent
-    const deadline = (await provider.getBlockNumber()) + 10000000000000; // Adjust deadline reasonably
+    const deadline = Math.floor((new Date()).getTime() / 1000) + 100; // UNIX timestamp + 10 seconds
 
     const tx = await routerContract.swapExactETHForTokens(
         0, // amountOutMin, set to 0 for simplicity in this example, but should be estimated in a real scenario
