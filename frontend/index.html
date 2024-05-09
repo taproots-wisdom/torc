@@ -9,20 +9,22 @@
     <button id="connectWallet">Connect Wallet</button><br/>
     <label for="ethAmount">Enter ETH amount:</label>
     <input id="ethAmount" type="text" placeholder="0.0001" onfocus="if(this.value=='') {this.value='';}" onblur="if(this.value=='') {this.value='';}">
+    <button id="set50" onclick="setEthAmount(50)" disabled>Set $50</button>
+    <button id="set100" onclick="setEthAmount(100)" disabled>Set $100</button>
+    <button id="set500" onclick="setEthAmount(500)" disabled>Set $500</button>
     <button id="getQuote" disabled>Get Quote</button>
     <button id="buyTorc" disabled>Buy TORC</button>
-    <div id="walletInfo"></div> <!-- Div for displaying wallet information -->
-    <div id="transactionStatus"></div> <!-- Div for displaying transaction status -->
-    <div id="quoteDetails"></div> <!-- Div for displaying quote details -->
-    <div id="swapDetails"></div> <!-- Div for displaying swap event details -->
+    <div id="walletInfo"></div>
+    <div id="transactionStatus"></div>
+    <div id="quoteDetails"></div>
+    <div id="swapDetails"></div>
 
     <script>
-        // Declare a variable to store the signer globally
         let signer;
         let routerContract;
         let pairContract;
+        let ethPriceUSD;
 
-        // Define the router and pair addresses and ABIs
         const routerAddress = '0xC532a74256D3Db42D0Bf7a0400fEFDbad7694008';
         const pairAddress = '0x69A34Ff55fBF31C26dF2b8a398F22160727730a5';
         const tokenAddress = '0xac8b8faAD68867C125F72384e31D07daE40D6fcd';
@@ -45,15 +47,21 @@
                     const balance = await provider.getBalance(address);
                     const balanceInEth = ethers.utils.formatEther(balance);
 
-                    // Update wallet information on the page
                     document.getElementById('walletInfo').innerHTML = `Connected Wallet Address: ${address}<br>Balance: ${balanceInEth} ETH`;
-
                     console.log('Wallet connected:', address);
 
                     routerContract = new ethers.Contract(routerAddress, routerABI, signer);
                     pairContract = new ethers.Contract(pairAddress, pairABI, signer);
                     document.getElementById('buyTorc').disabled = false;
                     document.getElementById('getQuote').disabled = false;
+                    document.getElementById('set50').disabled = false;
+                    document.getElementById('set100').disabled = false;
+                    document.getElementById('set500').disabled = false;
+
+                    // Fetch the current price of ETH in USD
+                    const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd');
+                    const data = await response.json();
+                    ethPriceUSD = data.ethereum.usd;
                 } catch (error) {
                     console.error('Error connecting to MetaMask:', error);
                 }
@@ -61,6 +69,11 @@
                 alert('MetaMask is not available. Please install it to use this feature.');
             }
         });
+
+        function setEthAmount(usdAmount) {
+            const ethAmount = (usdAmount / ethPriceUSD).toFixed(4);
+            document.getElementById('ethAmount').value = ethAmount;
+        }
 
         document.getElementById('getQuote').addEventListener('click', async () => {
             const amountInput = document.getElementById('ethAmount').value;
@@ -72,7 +85,9 @@
             const path = [await routerContract.WETH(), tokenAddress];
             const quote = await routerContract.getAmountsOut(amountETH, path);
             const torcOut = ethers.utils.formatUnits(quote[1], 18);
-            document.getElementById('quoteDetails').innerHTML = `Quote: ${amountInput} ETH will get approximately ${torcOut} TORC`;
+
+            const ethValueUSD = (parseFloat(amountInput) * ethPriceUSD).toFixed(2);
+            document.getElementById('quoteDetails').innerHTML = `Quote: ${amountInput} ETH will get approximately ${torcOut} TORC. (1 ETH = $${ethPriceUSD}, Total: $${ethValueUSD} USD)`;
         });
 
         document.getElementById('buyTorc').addEventListener('click', async () => {
@@ -95,10 +110,9 @@
                 );
                 document.getElementById('transactionStatus').innerHTML = `Transaction submitted (Pending): ${tx.hash}`;
 
-                // Listen for the Swap event from the pair contract
                 pairContract.once("Swap", (sender, amount0In, amount1In, amount0Out, amount1Out, to, event) => {
-                    const ethIn = ethers.utils.formatUnits(amount0In, 18); // Assuming ETH is amount0In
-                    const torcOut = ethers.utils.formatUnits(amount1Out, 18); // Assuming TORC is amount1Out
+                    const ethIn = ethers.utils.formatUnits(amount0In, 18);
+                    const torcOut = ethers.utils.formatUnits(amount1Out, 18);
                     document.getElementById('swapDetails').innerHTML = `Swap Details: ${ethIn} ETH swapped for ${torcOut} TORC`;
                 });
 
