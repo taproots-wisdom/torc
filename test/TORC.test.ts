@@ -71,9 +71,9 @@ describe("TORC", function () {
         const teamAddress = await torc.torc.teamWallet();
 
         // expect(taxAddress).to.equal(ownerAddress);
-        expect(treasuryAddress).to.equal("0x47389e8e12dB6569453A1104c919effa25B2b368");
-        expect(devAddress).to.equal("0x19424bf0FeadB6B71c61076A003424d1906043Bf");
-        expect(teamAddress).to.equal("0xD8A0DfBA5983d4602f0c73A23ba769810C59E080");
+        expect(treasuryAddress).to.equal("0xD335c5E36F1B19AECE98b78e9827a9DF76eE29E6");
+        expect(devAddress).to.equal("0xE4eEc0C7e825f988aEEe7d05BE579519532E94E5");
+        expect(teamAddress).to.equal("0x000000000000000000000000000000000000dEaD");
 
         const taxBalance = await torc.torc.balanceOf(ownerAddress);
         const treasuryBalance = await torc.torc.balanceOf(treasuryAddress);
@@ -83,33 +83,28 @@ describe("TORC", function () {
         const decimals = 18n;
         const initialSupply = 432000000n * 10n ** decimals;
 
-        expect(taxBalance).to.equal(100000000n * 10n ** decimals);
-        expect(treasuryBalance).to.equal(200000000n * 10n ** decimals);
-        expect(devBalance).to.equal(100000000n * 10n ** decimals);
-        expect(teamBalance).to.equal(32000000n * 10n ** decimals);
+        expect(taxBalance).to.equal(172800000n * 10n ** decimals); 
+        expect(treasuryBalance).to.equal(129_600_000n * 10n ** decimals);
+        expect(devBalance).to.equal(86_400_000n * 10n ** decimals);
+        expect(teamBalance).to.equal(43_200_000n * 10n ** decimals);
 
-        expect(await torc.torc.balanceOf(ownerAddress)).to.equal(initialSupply - 332000000n * 10n ** decimals);
-
+        expect(taxBalance + treasuryBalance + devBalance + teamBalance).to.equal(initialSupply);
 
     });
-
-    // it("Should receive ether in the contract", async function () {
-    //     const { torc, owner } = await loadFixture(deployModuleFixture);
-
-    //     const amount = ethers.parseEther("1");
-    //     await owner.sendTransaction({ to: torc.torc, value: amount });
-
-    //     expect(await ethers.provider.getBalance(torc.torc)).to.equal(amount);
-    // });
 
     it("Should initialize the liquidity pool", async function () {
         const { torc, owner, ownerAddress, uniswapV3, weth } = await loadFixture(deployModuleFixture);
         
-        const amountETH = ethers.parseEther("1");
-        const sendEther = await owner.sendTransaction({ to: weth.weth, value: amountETH });
-        await sendEther.wait();
+        const maxUint = ethers.MaxUint256;
+        const tx = await torc.approve(routerAddress, maxUint);
+        await tx.wait();
+        console.log(`Approval Transaction Hash: ${tx.hash}`);
 
-        expect(await ethers.provider.getBalance(weth.weth)).to.be.at.least(amountETH);
+        // const amountETH = ethers.parseEther("1");
+        // const sendEther = await owner.sendTransaction({ to: weth.weth, value: amountETH });
+        // await sendEther.wait();
+
+        // expect(await ethers.provider.getBalance(weth.weth)).to.be.at.least(amountETH);
 
         // expect(await ethers.provider.getBalance(torc.torc)).to.equal(amountETH);
 

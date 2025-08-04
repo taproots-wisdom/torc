@@ -11,6 +11,7 @@ import "hardhat-gas-reporter";
 import '@nomicfoundation/hardhat-ethers'
 // import '@nomicfoundation/hardhat-chai-matchers'
 import "@nomicfoundation/hardhat-ignition-ethers";
+// import "@nomiclabs/hardhat-waffle";
 import { resolve } from "path";
 import { config as dotenvConfig } from "dotenv";
 import { HardhatUserConfig } from "hardhat/config";
@@ -233,6 +234,18 @@ const config: HardhatUserConfig = {
             runs: 800,
           },
         },
+      },
+      {
+        version: "0.8.30",
+        settings: {
+          metadata: {
+            bytecodeHash: "none",
+          },
+          optimizer: {
+            enabled: true,
+            runs: 800,
+          },
+        },
       }
     ],
     settings: {
@@ -248,10 +261,10 @@ const config: HardhatUserConfig = {
 //         default: 0,
 //     }
 // },
-  // typechain: {
-  //   outDir: "types",
-  //   target: "ethers-v5",
-  // },
+  typechain: {
+    outDir: "types",
+    target: "ethers-v6",
+  },
   paths: {
     artifacts: "./artifacts",
     cache: "./cache",

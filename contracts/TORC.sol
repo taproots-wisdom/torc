@@ -1,378 +1,497 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.24;
+pragma solidity ^0.8.30;
 
-import "./libraries/Ownable.sol";
-import "./libraries/Address.sol";
+/**
+ * @title TORC ERC‑20 Token
+ * @notice This contract implements the TORC token with a fixed supply cap, burnability,
+ * permit functionality (EIP‑2612), pausability, role‑based access control, swap fee
+ * management, fee accumulation and distribution in ETH, and a single‑execution
+ * Token Generation Event (TGE). Only swaps executed through the configured
+ * liquidity pair (initially ETH/TORC on Uniswap) incur a fee; regular transfers
+ * between users are free of charge. Addresses marked with `FEE_EXEMPT_ROLE` are
+ * exempt from swap fees. Swap fees are collected in TORC, converted to ETH via
+ * a Uniswap V2‑style router and distributed to recipients once a threshold is met.
+ *
+ * @dev This contract is non‑upgradeable and uses OpenZeppelin Contracts v5.x. The
+ * owner (DEFAULT_ADMIN_ROLE) can update fee parameters, add/remove fee‑exempt
+ * addresses, set the liquidity pair address, and configure or execute the TGE.
+ */
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
-import '@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol';
-import '@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol';
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
+import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
+/// @dev Minimal interface for Wrapped ETH (WETH) to enable deposit and withdrawal of ETH.
+interface IWETH is IERC20 {
+    function deposit() external payable;
+    function withdraw(uint256) external;
+}
 
-contract TORC is Context, IERC20, Ownable {
-    using Address for address;
+/// @dev Minimal interface for Uniswap V2 style router to swap tokens for ETH. This interface
+/// suffices for converting TORC tokens collected as fees into ETH so they can be
+/// distributed according to the configured split.
+interface IUniswapV2Router02 {
+    function swapExactTokensForETH(
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) external returns (uint256[] memory amounts);
+}
 
-    //Mapping section for better tracking.
-    mapping(address => uint256) private _tOwned;
-    mapping(address => mapping(address => uint256)) private _allowances;
-    mapping(address => bool) private _isExcludedFromFee;
+contract TORC is
+    ERC20,
+    ERC20Burnable,
+    ERC20Permit,
+    Pausable,
+    AccessControl,
+    ReentrancyGuard
+{
+    using SafeERC20 for IERC20;
 
-    //Loging and Event Information for better troubleshooting.
-    event Log(string, uint256);
-    event AuditLog(string, address);
-    event SwapAndLiquifyEnabledUpdated(bool enabled);
-    event SwapAndLiquify(
-        uint256 tokensSwapped,
-        uint256 ethReceived,
-        uint256 tokensIntoLiqudity
-    );
-    event SwapTokensForETH(uint256 amountIn, address[] path);
+    // ------------------------------------------------------------------------
+    //                               Roles
+    // ------------------------------------------------------------------------
+    /// @dev Role identifier for addresses allowed to pause and unpause the contract.
+    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
+    /// @dev Role identifier for addresses allowed to configure fee parameters and recipients.
+    bytes32 public constant FEE_MANAGER_ROLE = keccak256("FEE_MANAGER_ROLE");
+    /// @dev Role identifier for addresses allowed to configure and execute the TGE.
+    bytes32 public constant TGE_MANAGER_ROLE = keccak256("TGE_MANAGER_ROLE");
+    /// @dev Role identifier for addresses exempt from swap fees.
+    bytes32 public constant FEE_EXEMPT_ROLE = keccak256("FEE_EXEMPT_ROLE");
 
-    //Supply Definition.
-    uint256 private _tTotal = 432_000_000 ether;
-    uint256 private _tFeeTotal;
+    // ------------------------------------------------------------------------
+    //                          Token Supply Parameters
+    // ------------------------------------------------------------------------
+    /// @notice Maximum total supply of TORC tokens: 432 billion with 18 decimals.
+    uint256 public constant MAX_SUPPLY = 432_000_000_000 * 1e18;
 
-    //Token Definition.
-    string public constant name = "Torc";
-    string public constant symbol = "TORC";
-    uint8 public constant decimals = 18;
+    // ------------------------------------------------------------------------
+    //                            Swap Fee Configuration
+    // ------------------------------------------------------------------------
+    /// @notice Swap fee in basis points (1 basis point = 0.01%). Default is 3% (300 bps).
+    uint256 public swapFeeBps;
 
-    //Definition of Wallets for Marketing or team.
-    address payable public treasuryWallet = payable(0xD335c5E36F1B19AECE98b78e9827a9DF76eE29E6);
-    address payable public devWallet = payable(0xE4eEc0C7e825f988aEEe7d05BE579519532E94E5);
-    address payable public teamWallet = payable(0x000000000000000000000000000000000000dEaD); 
-    address payable public ownerWallet = payable(0x9767a2B120614F526e923DAAF89843EC7C2292d7);
+    /// @notice Address of the liquidity pool (initially the ETH/TORC pair). Transfers to
+    /// or from this address are treated as swaps subject to the fee unless an
+    /// exemption applies.
+    address public pairAddress;
 
-    //Taxes Definition.
-    uint public buyFee = 300; // 3%
-    uint256 public sellFee = 300; // 3%
-    uint256 public minimumTokensBeforeSwap = 10_000 ether;
+    /// @notice Threshold in wei upon which accumulated fees are distributed. Zero disables
+    /// automatic distribution.
+    uint256 public feeDistributionThresholdWei;
 
-    //Router and Pair Configuration.
-    IUniswapV2Router02 public immutable uniswapV2Router;
-    address public immutable uniswapV2Pair;
-    address private immutable WETH;
+    /// @notice Array of recipient addresses that will receive fee distributions when the threshold is met.
+    address[] public feeRecipients;
+    /// @notice Basis points for each recipient in `feeRecipients`. Sum must equal 10_000 (100%).
+    uint256[] public feeRecipientBps;
 
-    //Tracking of Automatic Swap vs Manual Swap.
-    bool public inSwapAndLiquify;
-    bool public swapAndLiquifyEnabled = false;
-    bool public tradingEnabled = false; 
+    /// @notice Accumulated ETH awaiting distribution. Fees collected in TORC are converted
+    /// to ETH and accumulate until the threshold is reached.
+    uint256 public accumulatedFeeWei;
 
-    modifier lockTheSwap() {
-        inSwapAndLiquify = true;
-        _;
-        inSwapAndLiquify = false;
+    /// @notice Address of the WETH contract used to wrap and unwrap ETH when converting fees.
+    IWETH public weth;
+
+    /// @notice Address of the Uniswap V2 style router used to convert TORC tokens to ETH.
+    IUniswapV2Router02 public uniswapRouter;
+
+    // ------------------------------------------------------------------------
+    //                         Token Generation Event (TGE)
+    // ------------------------------------------------------------------------
+    /// @notice Indicates whether TGE recipients and amounts have been configured.
+    bool public tgeConfigured;
+    /// @notice Indicates whether TGE has been executed.
+    bool public tgeExecuted;
+
+    /// @dev Mapping of addresses to TGE allocation amounts (in whole tokens, not wei). Used during configuration and execution.
+    mapping(address => uint256) private tgeAllocations;
+    /// @dev Internal list of TGE recipients for iteration during execution.
+    address[] private tgeRecipientList;
+
+    // ------------------------------------------------------------------------
+    //                            Internal State Flags
+    // ------------------------------------------------------------------------
+    /// @dev Flag to indicate when the contract is in the middle of a swap and fee
+    /// conversion. Used to prevent recursive fee collection on internal token
+    /// transfers triggered by the Uniswap router during `swapExactTokensForETH`.
+    bool private inSwap;
+
+    // ------------------------------------------------------------------------
+    //                               Events
+    // ------------------------------------------------------------------------
+    /// @notice Emitted when a swap fee is collected and converted to ETH.
+    /// @param payer Address of the entity that paid the swap fee.
+    /// @param amountETH Amount of ETH collected as fee.
+    event FeeCollected(address indexed payer, uint256 amountETH);
+
+    /// @notice Emitted when ETH is distributed to a fee recipient.
+    /// @param recipient Address receiving the fee distribution.
+    /// @param amountETH Amount of ETH distributed.
+    event FeeDistributed(address indexed recipient, uint256 amountETH);
+
+    /// @notice Emitted when the swap fee percentage is updated.
+    /// @param oldFeeBps Previous fee in basis points.
+    /// @param newFeeBps New fee in basis points.
+    event SwapFeeUpdated(uint256 oldFeeBps, uint256 newFeeBps);
+
+    /// @notice Emitted when the fee recipient split is updated.
+    /// @param recipients Array of recipient addresses.
+    /// @param bps Corresponding basis points for each recipient.
+    event FeeSplitUpdated(address[] recipients, uint256[] bps);
+
+    /// @notice Emitted when the swap pair address is updated.
+    /// @param oldPair Previous pair address.
+    /// @param newPair New pair address.
+    event PairAddressUpdated(address indexed oldPair, address indexed newPair);
+
+    // ------------------------------------------------------------------------
+    //                             Initialization
+    // ------------------------------------------------------------------------
+    /**
+     * @notice Contract constructor. Sets immutable token name and symbol, assigns
+     * administrative roles to the deployer, configures fee parameters, records
+     * external contract addresses, and initializes the token as paused=false. No
+     * tokens are minted in the constructor; minting occurs via executeTGE.
+     *
+     * @param _weth Address of the Wrapped ETH contract.
+     * @param _uniswapRouter Address of the Uniswap V2 style router for converting fees to ETH.
+     */
+    constructor(address _weth, address _uniswapRouter) ERC20("TORC", "TORC") ERC20Permit("TORC") {
+        require(_weth != address(0), "WETH address cannot be zero");
+        require(_uniswapRouter != address(0), "Router address cannot be zero");
+
+        // Assign roles to deployer
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _grantRole(PAUSER_ROLE, msg.sender);
+        _grantRole(FEE_MANAGER_ROLE, msg.sender);
+        _grantRole(TGE_MANAGER_ROLE, msg.sender);
+
+        // Set default fee parameters
+        swapFeeBps = 300; // 3% fee
+        feeDistributionThresholdWei = 0; // no auto distribution initially
+        accumulatedFeeWei = 0;
+
+        // External addresses
+        weth = IWETH(_weth);
+        uniswapRouter = IUniswapV2Router02(_uniswapRouter);
     }
 
-    constructor() {
-        _tOwned[_msgSender()] = 172_800_000 ether; // 40% of the total supply, for Liquidity Pool
-        _tOwned[treasuryWallet] = 129_600_000 ether; // 30% of the total supply
-        _tOwned[devWallet] = 86_400_000 ether; // 20% of the total supply
-        _tOwned[teamWallet] = 43_200_000 ether; // 10% of the total supply
+    // ------------------------------------------------------------------------
+    //                     External Configuration Functions
+    // ------------------------------------------------------------------------
+    /**
+     * @notice Updates the address of the liquidity pair used to detect swaps. Transfers
+     * involving this address are subject to the swap fee unless exempted. Only
+     * callable by accounts with `DEFAULT_ADMIN_ROLE`.
+     *
+     * @param newPair Address of the new liquidity pair.
+     */
+    function setPairAddress(address newPair) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(newPair != address(0), "Pair address cannot be zero");
+        address oldPair = pairAddress;
+        pairAddress = newPair;
+        emit PairAddressUpdated(oldPair, newPair);
+    }
 
-        address currentRouter;
-        //Adding Variables for all the routers for easier deployment for our customers.
-        if (block.chainid == 56) {
-            currentRouter = 0x10ED43C718714eb63d5aA57B78B54704E256024E; // PCS Router
-        } else if (block.chainid == 97) {
-            currentRouter = 0xD99D1c33F9fC3444f8101754aBC46c52416550D1; // PCS Testnet
-        } else if (block.chainid == 43114) {
-            currentRouter = 0x60aE616a2155Ee3d9A68541Ba4544862310933d4; //Avax Mainnet
-        } else if (block.chainid == 137) {
-            currentRouter = 0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff; //Polygon Ropsten
-        } else if (block.chainid == 6066) {
-            currentRouter = 0x4169Db906fcBFB8b12DbD20d98850Aee05B7D889; //Tres Leches Chain
-        } else if (block.chainid == 250) {
-            currentRouter = 0xF491e7B69E4244ad4002BC14e878a34207E38c29; //SpookySwap FTM
-        } else if (block.chainid == 42161) {
-            currentRouter = 0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506; //Arbitrum Sushi
-		} else if (block.chainid == 11155111) {
-			currentRouter = 0xC532a74256D3Db42D0Bf7a0400fEFDbad7694008; //Sepolia Testnet
-        } else if (
-            block.chainid == 1 || block.chainid == 4 || block.chainid == 5 || block.chainid == 1337 || block.chainid == 14075
-        ) {
-            currentRouter = 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D; //Mainnet
+    /**
+     * @notice Updates the basis points charged as swap fee. Only callable by
+     * addresses holding the `FEE_MANAGER_ROLE`. The fee cannot exceed 10% (1000 bps).
+     *
+     * @param newFeeBps The new fee in basis points.
+     */
+    function setSwapFee(uint256 newFeeBps) external onlyRole(FEE_MANAGER_ROLE) {
+        require(newFeeBps <= 1000, "Fee exceeds max of 10%");
+        uint256 oldFee = swapFeeBps;
+        swapFeeBps = newFeeBps;
+        emit SwapFeeUpdated(oldFee, newFeeBps);
+    }
+
+    /**
+     * @notice Updates the ETH threshold at which accumulated fees are distributed to
+     * recipients. Only callable by addresses with the `FEE_MANAGER_ROLE`.
+     *
+     * @param weiAmount New threshold in wei. A value of zero disables automatic distribution.
+     */
+    function setFeeDistributionThreshold(uint256 weiAmount) external onlyRole(FEE_MANAGER_ROLE) {
+        feeDistributionThresholdWei = weiAmount;
+    }
+
+    /**
+     * @notice Configures the recipients and their respective shares of collected fees. Only
+     * callable by addresses with the `FEE_MANAGER_ROLE`. The sum of `bps` must equal 10_000 (100%).
+     *
+     * @param recipients Array of addresses to receive fee distributions.
+     * @param bps Array of basis points corresponding to each recipient.
+     */
+    function setFeeRecipients(address[] calldata recipients, uint256[] calldata bps) external onlyRole(FEE_MANAGER_ROLE) {
+        require(recipients.length > 0, "Recipients required");
+        require(recipients.length == bps.length, "Recipients and bps length mismatch");
+        uint256 totalBps = 0;
+        for (uint256 i = 0; i < bps.length; i++) {
+            totalBps += bps[i];
+        }
+        require(totalBps == 10_000, "Total basis points must equal 10000");
+
+        feeRecipients = recipients;
+        feeRecipientBps = bps;
+        emit FeeSplitUpdated(recipients, bps);
+    }
+
+    /**
+     * @notice Marks or unmarks an address as exempt from paying swap fees. Only callable by
+     * accounts with the `FEE_MANAGER_ROLE`.
+     *
+     * @param account Address to update exemption for.
+     * @param exempt True to exempt the address from fees, false to remove exemption.
+     */
+    function setFeeExempt(address account, bool exempt) external onlyRole(FEE_MANAGER_ROLE) {
+        if (exempt) {
+            _grantRole(FEE_EXEMPT_ROLE, account);
         } else {
-            revert("You're not Blade");
+            _revokeRole(FEE_EXEMPT_ROLE, account);
         }
-
-        //End of Router Variables.
-        //Create Pair in the contructor, this may fail on some blockchains and can be done in a separate line if needed.
-        IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(currentRouter);
-        WETH = _uniswapV2Router.WETH();
-        uniswapV2Pair = IUniswapV2Factory(_uniswapV2Router.factory())
-            .createPair(address(this), WETH);
-        uniswapV2Router = _uniswapV2Router;
-        _isExcludedFromFee[owner()] = true;
-        _isExcludedFromFee[address(this)] = true;
-
-        emit Transfer(address(0), _msgSender(), _tTotal);
     }
 
-    //Readable Functions.
-    function totalSupply() public view override returns (uint256) {
-        return _tTotal;
-    }
-
-    function balanceOf(address account) public view override returns (uint256) {
-        return _tOwned[account];
-    }
-
-    //ERC 20 Standard Transfer Functions
-    function transfer(
-        address recipient,
-        uint256 amount
-    ) public override returns (bool) {
-        _transfer(_msgSender(), recipient, amount);
-        return true;
-    }
-
-    //ERC 20 Standard Allowance Function
-    function allowance(
-        address _owner,
-        address spender
-    ) public view override returns (uint256) {
-        return _allowances[_owner][spender];
-    }
-
-    //ERC 20 Standard Approve Function
-    function approve(
-        address spender,
-        uint256 amount
-    ) public override returns (bool) {
-        _approve(_msgSender(), spender, amount);
-        return true;
-    }
-
-    //ERC 20 Standard Transfer From
-    function transferFrom(
-        address sender,
-        address recipient,
-        uint256 amount
-    ) public override returns (bool) {
-        uint currentAllowance = _allowances[sender][_msgSender()];
-        require(
-            currentAllowance >= amount,
-            "ERC20: transfer amount exceeds allowance"
-        );
-        _transfer(sender, recipient, amount);
-        _approve(sender, _msgSender(), currentAllowance - amount);
-        return true;
-    }
-
-    //ERC 20 Standard increase Allowance
-    function increaseAllowance(
-        address spender,
-        uint256 addedValue
-    ) public virtual returns (bool) {
-        _approve(
-            _msgSender(),
-            spender,
-            _allowances[_msgSender()][spender] + addedValue
-        );
-        return true;
-    }
-
-    //ERC 20 Standard decrease Allowance
-    function decreaseAllowance(
-        address spender,
-        uint256 subtractedValue
-    ) public virtual returns (bool) {
-        _approve(
-            _msgSender(),
-            spender,
-            _allowances[_msgSender()][spender] - subtractedValue
-        );
-        return true;
-    }
-
-    //Approve Function
-    function _approve(address _owner, address spender, uint256 amount) private {
-        require(_owner != address(0), "ERC20: approve from the zero address");
-        require(spender != address(0), "ERC20: approve to the zero address");
-
-        _allowances[_owner][spender] = amount;
-        emit Approval(_owner, spender, amount);
-    }
-
-    //Transfer function, validate correct wallet structure, take fees, and other custom taxes are done during the transfer.
-    function _transfer(address from, address to, uint256 amount) private {
-        require(from != address(0), "ERC20: transfer from the zero address");
-        require(to != address(0), "ERC20: transfer to the zero address");
-        require(amount > 0, "Transfer amount must be greater than zero");
-        require(_tOwned[from] >= amount, "ERC20: transfer amount exceeds balance");
-        if (!tradingEnabled) {
-            require(from != uniswapV2Pair && to != uniswapV2Pair, "Trading is disabled");
+    // ------------------------------------------------------------------------
+    //                        Token Generation Event (TGE)
+    // ------------------------------------------------------------------------
+    /**
+     * @notice Configures the recipients and amounts for the Token Generation Event. Can only
+     * be called once, before execution, by addresses with the `TGE_MANAGER_ROLE`.
+     *
+     * @param recipients Array of addresses to receive initial token allocations (in whole tokens, not wei).
+     * @param amounts Array of token amounts (without decimals) corresponding to each recipient.
+     */
+    function configureTGE(address[] calldata recipients, uint256[] calldata amounts) external onlyRole(TGE_MANAGER_ROLE) {
+        require(!tgeConfigured, "TGE already configured");
+        require(recipients.length > 0, "No recipients provided");
+        require(recipients.length == amounts.length, "Recipients and amounts length mismatch");
+        uint256 totalAllocation = 0;
+        for (uint256 i = 0; i < recipients.length; i++) {
+            require(recipients[i] != address(0), "Recipient cannot be zero address");
+            require(amounts[i] > 0, "Allocation amount must be greater than zero");
+            require(tgeAllocations[recipients[i]] == 0, "Duplicate recipient");
+            tgeAllocations[recipients[i]] = amounts[i];
+            tgeRecipientList.push(recipients[i]);
+            totalAllocation += amounts[i];
         }
-
-        //Adding logic for automatic swap.
-        uint256 contractTokenBalance = balanceOf(address(this));
-        bool overMinimumTokenBalance = contractTokenBalance >= minimumTokensBeforeSwap;
-        uint fee = 0;
-        //if any account belongs to _isExcludedFromFee account then remove the fee
-        if (
-            !inSwapAndLiquify &&
-            from != uniswapV2Pair &&
-            overMinimumTokenBalance &&
-            swapAndLiquifyEnabled
-        ) {
-            swapAndLiquify();
-        }
-        if (to == uniswapV2Pair && !_isExcludedFromFee[from]) {
-            fee = (sellFee * amount) / 10_000;
-        }
-        if (from == uniswapV2Pair && !_isExcludedFromFee[to]) {
-            fee = (buyFee * amount) / 10_000;
-        }
-        amount -= fee;
-        if (fee > 0) {
-            _tokenTransfer(from, address(this), fee);            
-        }
-        _tokenTransfer(from, to, amount);
+        // Ensure total allocation does not exceed cap when converted to wei
+        require(totalSupply() + (totalAllocation * (10 ** decimals())) <= MAX_SUPPLY, "TGE allocation exceeds max supply");
+        tgeConfigured = true;
     }
 
-    //Swap Tokens for BNB or to add liquidity either automatically or manual, by default this is set to manual.
-    //Corrected newBalance bug, it sending bnb to wallet and any remaining is on contract and can be recoverred.
-    function swapAndLiquify() public lockTheSwap {
-        uint256 totalTokens = balanceOf(address(this));
-        swapTokensForEth(totalTokens);
-
-        uint ethBalance = address(this).balance;
-        transferToAddressETH(treasuryWallet, ethBalance);
+    /**
+     * @notice Executes the Token Generation Event by minting tokens to configured recipients.
+     * Can only be called once after configuration by addresses with the `TGE_MANAGER_ROLE`.
+     */
+    function executeTGE() external onlyRole(TGE_MANAGER_ROLE) whenNotPaused {
+        require(tgeConfigured, "TGE not configured");
+        require(!tgeExecuted, "TGE already executed");
+        tgeExecuted = true;
+        for (uint256 i = 0; i < tgeRecipientList.length; i++) {
+            address recipient = tgeRecipientList[i];
+            uint256 amount = tgeAllocations[recipient];
+            if (amount > 0) {
+                uint256 mintAmount = amount * (10 ** decimals());
+                require(totalSupply() + mintAmount <= MAX_SUPPLY, "Mint would exceed max supply");
+                _mint(recipient, mintAmount);
+                tgeAllocations[recipient] = 0;
+            }
+        }
+        delete tgeRecipientList;
     }
 
-    //swap for eth is to support the converstion of tokens to weth during swapandliquify this is a supporting function
-    function swapTokensForEth(uint256 tokenAmount) private {
-        // generate the uniswap pair path of token -> weth
+    // ------------------------------------------------------------------------
+    //                          Fee and Distribution Logic
+    // ------------------------------------------------------------------------
+    /**
+     * @dev Handles swap fee collection and conversion. Converts TORC fee tokens to ETH
+     * via the configured Uniswap router, accumulates ETH, emits a `FeeCollected`
+     * event and triggers distribution when threshold is met.
+     *
+     * @param payer Address responsible for paying the fee.
+     * @param feeAmount Amount of TORC tokens taken as fee from the swap.
+     */
+    function _handleSwapFee(address payer, uint256 feeAmount) internal {
+        if (feeAmount == 0) {
+            return;
+        }
+        // Enter swap state to prevent fees on internal transfers
+        inSwap = true;
+        // Convert TORC tokens to ETH via the Uniswap router using path [TORC, WETH].
+        // First approve the router to spend the fee tokens.
+        SafeERC20.forceApprove(IERC20(address(this)), address(uniswapRouter), feeAmount);
         address[] memory path = new address[](2);
         path[0] = address(this);
-        path[1] = WETH;
-        _approve(address(this), address(uniswapV2Router), tokenAmount);
-
-        // make the swap
-        uniswapV2Router.swapExactTokensForETHSupportingFeeOnTransferTokens(
-            tokenAmount,
-            0, // accept any amount of ETH
+        path[1] = address(weth);
+        uint256[] memory amounts = uniswapRouter.swapExactTokensForETH(
+            feeAmount,
+            0,
             path,
-            address(this), // The contract
+            address(this),
             block.timestamp
         );
-
-        emit SwapTokensForETH(tokenAmount, path);
+        // Exit swap state after conversion
+        inSwap = false;
+        uint256 ethReceived = amounts[amounts.length - 1];
+        accumulatedFeeWei += ethReceived;
+        emit FeeCollected(payer, ethReceived);
+        // Distribute if threshold reached and auto distribution is enabled
+        if (feeDistributionThresholdWei > 0 && accumulatedFeeWei >= feeDistributionThresholdWei) {
+            _distributeFees();
+        }
     }
 
-    //ERC 20 standard transfer, only added if taking fees to countup the amount of fees for better tracking and split purpose.
-    function _tokenTransfer(
-        address sender,
-        address recipient,
-        uint256 amount
-    ) private {
-        _tOwned[sender] -= amount;
-        _tOwned[recipient] += amount;
-
-        emit Transfer(sender, recipient, amount);
+    /**
+     * @dev Distributes accumulated ETH fees to recipients according to their configured
+     * basis points. Emits a `FeeDistributed` event for each recipient. Any remainder
+     * due to rounding remains in `accumulatedFeeWei`.
+     */
+    function _distributeFees() internal {
+        uint256 balance = address(this).balance;
+        if (balance == 0 || feeRecipients.length == 0) {
+            return;
+        }
+        // Determine how much to distribute (at most accumulatedFeeWei)
+        uint256 distributionAmount = accumulatedFeeWei;
+        if (distributionAmount > balance) {
+            distributionAmount = balance;
+        }
+        uint256 totalDistributed = 0;
+        for (uint256 i = 0; i < feeRecipients.length; i++) {
+            uint256 share = (distributionAmount * feeRecipientBps[i]) / 10_000;
+            if (share > 0) {
+                (bool success, ) = feeRecipients[i].call{value: share}("");
+                require(success, "ETH transfer failed");
+                emit FeeDistributed(feeRecipients[i], share);
+                totalDistributed += share;
+            }
+        }
+        accumulatedFeeWei -= totalDistributed;
     }
 
-    function isExcludedFromFee(address account) external view returns (bool) {
-        return _isExcludedFromFee[account];
+    // ------------------------------------------------------------------------
+    //                           ERC20 Overrides
+    // ------------------------------------------------------------------------
+    /**
+     * @dev Overridden transfer function that applies swap fee when transferring to or
+     * from the configured pair address. Regular transfers (i.e., not involving
+     * the pair) proceed without fees. Exempt addresses are not charged.
+     *
+     * @param from Address sending tokens.
+     * @param to Address receiving tokens.
+     * @param amount Amount of tokens being transferred.
+     */
+    /**
+     * @dev Overrides the internal balance update mechanism to apply swap fees when
+     * transferring to or from the configured pair address. Regular transfers
+     * between users proceed without fees. This function is called by the ERC20
+     * implementation to adjust balances and emits the usual {Transfer} events.
+     *
+     * Requirements:
+     * - The contract must not be paused (unless minting or burning).
+     *
+     * @param from Address tokens are transferred from. Zero address indicates minting.
+     * @param to Address tokens are transferred to. Zero address indicates burning.
+     * @param value Amount of tokens being transferred.
+     */
+    function _update(address from, address to, uint256 value) internal override {
+        // Disallow transfers while paused (except minting/burning via address(0))
+        if (paused()) {
+            // Allow minting or burning when paused
+            require(from == address(0) || to == address(0), "Pausable: token transfer while paused");
+        }
+        // Skip fee logic on minting or burning operations
+        if (from == address(0) || to == address(0)) {
+            super._update(from, to, value);
+            return;
+        }
+        // Skip fee logic during internal swaps triggered by the router
+        if (inSwap) {
+            super._update(from, to, value);
+            return;
+        }
+        // Apply fee only when interacting with the pair address
+        if (pairAddress != address(0) && (from == pairAddress || to == pairAddress)) {
+            // Determine the payer of the fee: if tokens come from the pair, the recipient pays; otherwise the sender pays
+            address payer = from == pairAddress ? to : from;
+            if (!hasRole(FEE_EXEMPT_ROLE, payer) && swapFeeBps > 0) {
+                uint256 feeAmount = (value * swapFeeBps) / 10_000;
+                uint256 netAmount = value - feeAmount;
+                // Transfer the fee to the contract
+                super._update(from, address(this), feeAmount);
+                // Transfer the net amount to the intended recipient
+                super._update(from, to, netAmount);
+                // Convert collected fee tokens to ETH and accumulate
+                _handleSwapFee(payer, feeAmount);
+                return;
+            }
+        }
+        // Default behaviour: no fee
+        super._update(from, to, value);
     }
 
-    //exclude wallets from fees, this is needed for launch or other contracts.
-    function excludeFromFee(address account) external onlyOwner {
-        _isExcludedFromFee[account] = true;
-        emit AuditLog(
-            "We have excluded the following walled in fees:",
-            account
-        );
+    // ------------------------------------------------------------------------
+    //                     Pausing and Emergency Functions
+    // ------------------------------------------------------------------------
+    /**
+     * @notice Pauses the contract, preventing transfers, TGE execution, and swap fee
+     * collection. Only callable by addresses holding the `PAUSER_ROLE`.
+     */
+    function pause() external onlyRole(PAUSER_ROLE) {
+        _pause();
     }
 
-    //include wallet back in fees.
-    function includeInFee(address account) external onlyOwner {
-        _isExcludedFromFee[account] = false;
-        emit AuditLog(
-            "We have including the following walled in fees:",
-            account
-        );
+    /**
+     * @notice Unpauses the contract, re-enabling transfers, TGE execution, and swap fee
+     * collection. Only callable by addresses holding the `PAUSER_ROLE`.
+     */
+    function unpause() external onlyRole(PAUSER_ROLE) {
+        _unpause();
     }
 
-    //Automatic Swap Configuration.
-    function setTokensToSwap(
-        uint256 _minimumTokensBeforeSwap
-    ) external onlyOwner {
-        require(
-            _minimumTokensBeforeSwap >= 1,
-            "You need to enter more than 1 tokens."
-        );
-        minimumTokensBeforeSwap = _minimumTokensBeforeSwap;
-        emit Log(
-            "We have updated minimunTokensBeforeSwap to:",
-            minimumTokensBeforeSwap
-        );
+    /**
+     * @notice Emergency function to withdraw ERC‑20 tokens mistakenly sent to this contract.
+     * Only callable by the `DEFAULT_ADMIN_ROLE`.
+     *
+     * @param token Address of the ERC‑20 token to withdraw.
+     * @param amount Amount of tokens to withdraw.
+     * @param to Recipient of the withdrawn tokens.
+     */
+    function emergencyWithdrawERC20(address token, uint256 amount, address to) external onlyRole(DEFAULT_ADMIN_ROLE) nonReentrant {
+        require(to != address(0), "Recipient cannot be zero address");
+        IERC20(token).safeTransfer(to, amount);
     }
 
-    function setSwapAndLiquifyEnabled(bool _enabled) external onlyOwner {
-        require(swapAndLiquifyEnabled != _enabled, "Value already set");
-        swapAndLiquifyEnabled = _enabled;
-        emit SwapAndLiquifyEnabledUpdated(_enabled);
+    /**
+     * @notice Emergency function to withdraw ETH mistakenly sent to this contract.
+     * Only callable by the `DEFAULT_ADMIN_ROLE`.
+     *
+     * @param amount Amount of ETH to withdraw.
+     * @param to Recipient of the withdrawn ETH.
+     */
+    function emergencyWithdrawETH(uint256 amount, address to) external onlyRole(DEFAULT_ADMIN_ROLE) nonReentrant {
+        require(to != address(0), "Recipient cannot be zero address");
+        (bool success, ) = to.call{value: amount}("");
+        require(success, "ETH transfer failed");
     }
 
-    //set a new marketing wallet.
-    function setTreasuryWallet(address _treasuryWallet) external onlyOwner {
-        require(_treasuryWallet != address(0), "setTreasuryWallet: ZERO");
-        treasuryWallet = payable(_treasuryWallet);
-        emit AuditLog("We have Updated the TreasuryWallet:", treasuryWallet);
-    }
-
-    //set a new team wallet.
-    function setDevWallet(address _devWallet) external onlyOwner {
-        require(_devWallet != address(0), "setDevWallet: ZERO");
-        devWallet = payable(_devWallet);
-        emit AuditLog("We have Updated the DevWallet:", devWallet);
-    }
-
-    function setTradingEnabled(bool _enabled) external onlyOwner {
-        require(tradingEnabled != _enabled, "Value already set");
-        tradingEnabled = _enabled;
-        emit Log("Trading Enabled:", tradingEnabled ? 1 : 0); 
-    }
-
-    function transferToAddressETH(
-        address payable recipient,
-        uint256 amount
-    ) private {
-        if (amount == 0) return;
-        (bool succ, ) = recipient.call{value: amount}("");
-        require(succ, "Transfer failed.");
-    }
-
-    //to recieve ETH from uniswapV2Router when swaping
+    // ------------------------------------------------------------------------
+    //                     ETH Receive Function
+    // ------------------------------------------------------------------------
+    /**
+     * @notice Receive function to accept ETH. Required for the contract to
+     * receive ETH from the Uniswap router when swapping TORC fees to ETH
+     * and from WETH unwrap operations. Without this, such transfers would
+     * revert.
+     */
     receive() external payable {}
-
-    // Withdraw ETH that's potentially stuck in the Contract
-    function recoverETHfromContract() external onlyOwner {
-        uint ethBalance = address(this).balance;
-        (bool succ, ) = payable(treasuryWallet).call{value: ethBalance}("");
-        require(succ, "Transfer failed");
-        emit AuditLog(
-            "We have recover the stock eth from contract.",
-            treasuryWallet
-        );
-    }
-
-    // Withdraw ERC20 tokens that are potentially stuck in Contract
-    function recoverTokensFromContract(
-        address _tokenAddress,
-        uint256 _amount
-    ) external onlyOwner {
-        require(
-            _tokenAddress != address(this),
-            "Owner can't claim contract's balance of its own tokens"
-        );
-        bool succ = IERC20(_tokenAddress).transfer(treasuryWallet, _amount);
-        require(succ, "Transfer failed");
-        emit Log("We have recovered tokens from contract:", _amount);
-    }
-
-    //Final Dev notes, this code has been tested and audited, last update to code was done to re-add swapandliquify function to the transfer as option, is recommended to be used manually instead of automatic.
 }
