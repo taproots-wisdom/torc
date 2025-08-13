@@ -11,5 +11,5 @@ remappings = [
 ]
 
 [dependencies]
-openzeppelin-contracts = { git = "https://github.com/OpenZeppelin/openzeppelin-contracts.git" }
-forge-std              = { git = "https://github.com/foundry-rs/forge-std.git" }
+openzeppelin-contracts = { git = "https://github.com/OpenZeppelin/openzeppelin-contracts.git", tag = "v5.4.0" }
+forge-std              = { git = "https://github.com/foundry-rs/forge-std.git", tag = "v1.10.0" }
