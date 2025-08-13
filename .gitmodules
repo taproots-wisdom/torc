@@ -1,0 +1,6 @@
+[submodule "torc-token/lib/forge-std"]
+	path = torc-token/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std
+[submodule "torc-token/lib/openzeppelin-contracts"]
+	path = torc-token/lib/openzeppelin-contracts
+	url = https://github.com/openzeppelin/openzeppelin-contracts
