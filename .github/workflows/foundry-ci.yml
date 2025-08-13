@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+# Make the secret available as a workflow-level env var
+env:
+  MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL }}
+
 jobs:
   unit:
     name: Unit & local integration tests
@@ -30,12 +34,12 @@ jobs:
     name: Mainnet-fork tests
     needs: unit
     runs-on: ubuntu-latest
-    # Only run this job when the secret is configured
-    if: ${{ secrets.MAINNET_RPC_URL != '' }}
+    # Use the env mapping above for the conditional
+    if: ${{ env.MAINNET_RPC_URL != '' }}
 
     env:
-      # Expose the RPC to the test suite (your tests call vm.envString("MAINNET_RPC_URL"))
-      MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL }}
+      # Also expose it inside the job so your tests can read it via vm.envString("MAINNET_RPC_URL")
+      MAINNET_RPC_URL: ${{ env.MAINNET_RPC_URL }}
 
     steps:
       - name: Checkout
@@ -49,7 +53,6 @@ jobs:
       - name: Install deps
         run: forge install
 
-      # Optional: make sure we don't accidentally pick up a repo .env that could shadow the secret
       - name: Remove repo .env if present (avoid conflicts)
         run: rm -f .env
 
