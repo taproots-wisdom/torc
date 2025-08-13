@@ -6,15 +6,10 @@ on:
   pull_request:
     branches: [main]
 
-# Make the secret available as a workflow-level env var
-env:
-  MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL }}
-
 jobs:
   unit:
     name: Unit & local integration tests
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,12 +29,8 @@ jobs:
     name: Mainnet-fork tests
     needs: unit
     runs-on: ubuntu-latest
-    # Use the env mapping above for the conditional
-    if: ${{ env.MAINNET_RPC_URL != '' }}
-
     env:
-      # Also expose it inside the job so your tests can read it via vm.envString("MAINNET_RPC_URL")
-      MAINNET_RPC_URL: ${{ env.MAINNET_RPC_URL }}
+      MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL }}
 
     steps:
       - name: Checkout
@@ -53,11 +44,11 @@ jobs:
       - name: Install deps
         run: forge install
 
-      - name: Remove repo .env if present (avoid conflicts)
-        run: rm -f .env
+      # Write a clean .env for Foundry to read
+      - name: Write .env for tests
+        run: |
+          echo "::add-mask::${MAINNET_RPC_URL}"
+          printf "MAINNET_RPC_URL=%s\n" "${MAINNET_RPC_URL}" > .env
 
       - name: Run forked tests (Uniswap V2, etc.)
-        run: |
-          forge test \
-            --match-path "test/Fork_*.t.sol" \
-            --gas-report
+        run: forge test --match-path "test/Fork_*.t.sol" --gas-report
