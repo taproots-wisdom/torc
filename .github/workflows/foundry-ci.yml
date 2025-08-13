@@ -22,8 +22,8 @@ jobs:
       - name: Install deps
         run: |
           rm -rf lib
-          forge install --no-commit OpenZeppelin/openzeppelin-contracts@v5.4.0
-          forge install --no-commit foundry-rs/forge-std@v1.10.0
+          forge install  OpenZeppelin/openzeppelin-contracts@v5.4.0
+          forge install  foundry-rs/forge-std@v1.10.0
 
       - name: Run local tests (no fork)
         run: forge test --gas-report
@@ -47,8 +47,8 @@ jobs:
       - name: Install deps
         run: |
           rm -rf lib
-          forge install --no-commit OpenZeppelin/openzeppelin-contracts@v5.4.2
-          forge install --no-commit foundry-rs/forge-std@v1.10.0
+          forge install  OpenZeppelin/openzeppelin-contracts@v5.4.2
+          forge install  foundry-rs/forge-std@v1.10.0
 
       # Write a clean .env for Foundry to read
       - name: Write .env for tests
