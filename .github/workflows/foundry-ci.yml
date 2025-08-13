@@ -20,7 +20,7 @@ jobs:
           version: nightly
 
       - name: Install deps
-        run: forge install --no-commit
+        run: forge install
 
       - name: Run local tests (no fork)
         run: forge test --gas-report
@@ -42,7 +42,7 @@ jobs:
           version: nightly
 
       - name: Install deps
-        run: forge install --no-commit
+        run: forge install
 
       # Write a clean .env for Foundry to read
       - name: Write .env for tests
