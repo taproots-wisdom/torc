@@ -63,7 +63,7 @@ jobs:
       - name: Install deps
         run: |
           rm -rf lib
-          forge install  OpenZeppelin/openzeppelin-contracts@v5.4.2
+          forge install  OpenZeppelin/openzeppelin-contracts@v5.4.0
           forge install  foundry-rs/forge-std@v1.10.0
 
       # Write a clean .env for Foundry to read
