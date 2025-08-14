@@ -1,4 +1,5 @@
 # TORC ERC-20 Token
+[![Foundry CI](https://github.com/taproots-wisdom/torc/actions/workflows/foundry-ci.yml/badge.svg)](https://github.com/taproots-wisdom/torc/actions/workflows/foundry-ci.yml) [![License](https://img.shields.io/github/license/taproots-wisdom/torc.svg)](./LICENSE)
 
 ## Overview
 **TORC** is a fixed-supply ERC-20 token with built-in fee collection, ETH distribution, EIP-2612 `permit` support, and role-based access control.  
