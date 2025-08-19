@@ -167,6 +167,7 @@ contract TORC is
         _grantRole(PAUSER_ROLE, msg.sender);
         _grantRole(FEE_MANAGER_ROLE, msg.sender);
         _grantRole(TGE_MANAGER_ROLE, msg.sender);
+        _grantRole(FEE_EXEMPT_ROLE, msg.sender);
 
         // Defaults
         swapFeeBps = 300; // 3%
