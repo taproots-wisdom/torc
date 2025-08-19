@@ -35,6 +35,7 @@ Usage examples:
 
 import argparse
 import json
+from numbers import Number
 import os
 import shlex
 import subprocess
@@ -141,6 +142,14 @@ def cast_balance(rpc, addr):
     """Return the ETH balance of an address via `cast balance`."""
     return run(["cast", "balance", addr, "--rpc-url", rpc]).split()[0]
 
+def parse_bigint(s: str) -> int:
+    s = s.strip().strip("[](),")
+    if s.startswith(("0x", "-0x")):
+        return int(s, 0)
+    # Use Decimal for 'e' or '.' forms; int(Decimal) truncates toward 0
+    if any(ch in s for ch in ("e", "E", ".")):
+        return int(Decimal(s))
+    return int(s)
 
 def to_wei_18(human: str) -> int:
     """Convert human readable token/ETH amounts into wei (18 decimals).
@@ -195,6 +204,97 @@ def token_decimals(rpc: str, token: str) -> int:
     except Exception:
         # Unknown format; default to 18
         return 18
+
+def dec_to_fixed(d: Decimal) -> str:
+    s = format(d, "f")           # fixed-point; no exponent
+    s = s.rstrip("0").rstrip(".")
+    return s or "0"
+
+def int_commas(n: int) -> str:
+    return f"{int(n):,}"
+
+def dec_to_fixed_commas(d: Decimal) -> str:
+    """Decimal → fixed-point string with thousands separators (no exponent)."""
+    s = dec_to_fixed(d)
+    neg = s.startswith("-")
+    if neg:
+        s = s[1:]
+    if "." in s:
+        i, frac = s.split(".", 1)
+    else:
+        i, frac = s, ""
+    i = f"{int(i):,}"
+    return ("-" if neg else "") + i + (("." + frac) if frac else "")
+
+# ------------- Pricing helpers -------------
+def quote_torc_price_per_eth(rpc: str, router: str, torc: str, tokenB: str | None = None) -> tuple[Decimal, int, int]:
+    """Return the TORC price per ETH for a given TORC pair.
+
+    This helper inspects the reserves of the Uniswap V2 pair between
+    ``torc`` and ``tokenB`` (WETH by default) and computes how many ETH are
+    required to buy one TORC.  It returns a tuple of ``(price, reserve_torc,
+    reserve_eth)``, where ``price`` is a high‑precision Decimal representing
+    ETH per TORC and the reserves are raw integer values.  If the pair
+    does not exist or has zero reserves the function raises a RuntimeError.
+
+    Parameters
+    ----------
+    rpc: str
+        RPC URL for the Ethereum network.
+    router: str
+        Address of the Uniswap V2 router.  Used to resolve WETH and
+        factory addresses.
+    torc: str
+        Address of the TORC token.
+    tokenB: str or None, optional
+        Address of the counter token.  If None, the router's WETH address
+        is used.
+
+    Returns
+    -------
+    (Decimal, int, int)
+        A tuple containing the TORC price in ETH as a Decimal and the
+        raw reserve balances (TORC reserve and ETH reserve) of the pair.
+    """
+    # Resolve tokenB (default to WETH)
+    other = tokenB or router_weth(rpc, router)
+    # Look up the pair via the factory
+    fct = router_factory(rpc, router)
+    pair_addr = get_pair(rpc, fct, torc, other)
+    if not pair_addr or pair_addr.lower() == "0x0000000000000000000000000000000000000000":
+        raise RuntimeError("Pair does not exist; create it first with lp:create-pair")
+    # Fetch reserves; use run() directly rather than cast_call() because cast_call
+    # truncates the output to a single token.  The reserves call returns three
+    # values separated by spaces (reserve0 reserve1 blockTimestamp).  We need
+    # both reserves to compute the price.
+    cmd = ["cast", "call", pair_addr, "getReserves()(uint112,uint112,uint32)", "--rpc-url", rpc]
+    reserves_raw = run(cmd)
+    if not reserves_raw:
+        raise RuntimeError("Unable to fetch reserves; RPC returned empty result")
+    parts = reserves_raw.split()
+    if len(parts) < 2:
+        raise RuntimeError(f"Unexpected getReserves output: {reserves_raw}")
+    # Parse numeric values into big integers; supports hex and scientific notation
+    reserve0 = parse_bigint(parts[0])
+    reserve1 = parse_bigint(parts[2])
+    # Determine token ordering
+    t0 = pair_token0(rpc, pair_addr)
+    # Fetch decimals for both tokens
+    dec_torc = token_decimals(rpc, torc)
+    dec_other = token_decimals(rpc, other)
+    # Determine which reserve corresponds to TORC and which to ETH
+    if t0.lower() == torc.lower():
+        reserve_torc = reserve0
+        reserve_eth = reserve1
+    else:
+        reserve_torc = reserve1
+        reserve_eth = reserve0
+    # Compute price in ETH per TORC: (reserve_eth / 10**dec_other) / (reserve_torc / 10**dec_torc)
+    if reserve_torc == 0 or reserve_eth == 0:
+        raise RuntimeError("Pair reserves are zero; cannot compute price")
+    # Use Decimal for high precision
+    price = (Decimal(reserve_eth) / (Decimal(10) ** dec_other)) / (Decimal(reserve_torc) / (Decimal(10) ** dec_torc))
+    return price, reserve_torc, reserve_eth
 
 
 def wei_str(x: int) -> str:
