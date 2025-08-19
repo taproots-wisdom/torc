@@ -79,8 +79,8 @@ contract TORC is
     // ------------------------------------------------------------------------
     //                          Token Supply Parameters
     // ------------------------------------------------------------------------
-    /// @notice Maximum total supply of TORC tokens: 432 billion with 18 decimals.
-    uint256 public constant MAX_SUPPLY = 432_000_000_000 * 1e18;
+    /// @notice Maximum total supply of TORC tokens: 432 million with 18 decimals.
+    uint256 public constant MAX_SUPPLY = 432_000_000 * 1e18;
 
     // ------------------------------------------------------------------------
     //                            Swap Fee Configuration
