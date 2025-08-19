@@ -99,14 +99,14 @@ if [[ "$NETWORK" == "mainnet" ]]; then
   CHAIN_ID=1
   WETH_ADDR="$MAINNET_WETH"
   ROUTER_ADDR="$MAINNET_UNIV2_ROUTER"
-  SCRIPT_PATH="script/DeployTORC_Mainnet.s.sol:DeployTORC_Mainnet"
+  SCRIPT_PATH="scripts/DeployTORC_Mainnet.s.sol:DeployTORC_Mainnet"
 elif [[ "$NETWORK" == "sepolia" ]]; then
   RPC_URL="${SEPOLIA_RPC_URL:-}"
   PRIVATE_KEY="${TESTNET_DEPLOYER_PK:-}"
   CHAIN_ID=11155111
   WETH_ADDR="$SEPOLIA_WETH"
   ROUTER_ADDR="$SEPOLIA_UNIV2_ROUTER"
-  SCRIPT_PATH="script/DeployTORC_Sepolia.s.sol:DeployTORC_Sepolia"
+  SCRIPT_PATH="scripts/DeployTORC_Sepolia.s.sol:DeployTORC_Sepolia"
 else
   echo "ERROR: unsupported network '$NETWORK'"; exit 1
 fi
