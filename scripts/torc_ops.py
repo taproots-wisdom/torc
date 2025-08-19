@@ -429,14 +429,17 @@ p.add_argument("deadline", nargs="?", default=None)
 p = sub.add_parser("lp:remove-eth-supporting")
 p.add_argument("liquidity", help="'all', '<n>' LP (whole units), or '<n>wei'")
 p.add_argument("to", nargs="?", default=None)
-p.add_argument("amountTokenMinWei", nargs="?",  default="0")
+p.add_argument("amountTokenMinWei", nargs="?", default="0")
 p.add_argument("amountETHMinWei", nargs="?", default="0")
 p.add_argument("deadline", nargs="?", default=None)
 
 p = sub.add_parser("lp:set-pair-on-torc"); p.add_argument("tokenB", nargs="?", default=None)
 
+# Quote price
+p = sub.add_parser("lp:quote")
+p.add_argument("tokenB", nargs="?", default=None)
+
 args = parser.parse_args()
-print(f"Running TORC ops with args: {args}")
 
 # ------------- Resolve network/RPC/PK -------------
 if args.network == "sepolia":
@@ -708,6 +711,20 @@ elif cmd == "lp:set-pair-on-torc":
         die("Pair does not exist. Use lp:create-pair first.")
     say(f"TORC.setPairAddress({pair})")
     cast_send(RPC_URL, PK, TORC, "setPairAddress(address)", pair)
+
+elif cmd == "lp:quote":
+    # Determine the counter token; default to WETH for the selected network
+    tokenB = args.tokenB or DEFAULT_WETH
+    try:
+        price, reserve_torc, reserve_eth = quote_torc_price_per_eth(RPC_URL, ROUTER_ADDR, TORC, tokenB)
+    except Exception as e:
+        die(str(e))
+    # Print out reserves and price information, remove torc decimals
+    torc_decimals = token_decimals(RPC_URL, TORC)
+    eth_decimals = 18 # WETH always has 18 decimals
+    say(f"Pair reserves (human): TORC={int_commas(Decimal(reserve_torc) / (Decimal(10) ** torc_decimals))} ; ETH={int_commas(Decimal(reserve_eth) / (Decimal(10) ** eth_decimals))} ")
+    # convert to human-readable format
+    say(f"TORC price (ETH per TORC): {dec_to_fixed_commas(price)} ETH")
 
 else:
     die(f"Unknown command: {cmd}")
