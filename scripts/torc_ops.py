@@ -575,6 +575,14 @@ elif cmd == "lp:add-eth":
     # to_wei_18.  Query the decimals via the standard decimals()
     # function; fall back to 18 if the call fails.
     torc_decimals = token_decimals(RPC_URL, TORC)
+    # Convert minimum amounts from human to smallest units.  When
+    # specifying a plain number, it represents whole tokens (or ETH),
+    # which are scaled by the token's decimals (or 18 for ETH).  If
+    # suffixed with "wei" the raw integer is used as-is.
+    amt_token_min = to_wei_with_decimals(str(args.amountTokenMin), torc_decimals)
+    amt_eth_min = to_wei_with_decimals(str(args.amountETHMin), 18)
+    # Deadline defaults to five minutes from now if not provided
+    deadline = int(args.deadline or (int(run(["date", "+%s"])) + 300))
 
     # Convert desired amounts to smallest units using the token's
     # decimals.  This ensures a value like "20000" properly means
@@ -582,16 +590,6 @@ elif cmd == "lp:add-eth":
     token_desired_wei = to_wei_with_decimals(human_torc, torc_decimals)
     eth_wei = to_wei_with_decimals(human_eth, 18)
 
-    # Convert minimum amounts from human to smallest units.  When
-    # specifying a plain number, it represents whole tokens (or ETH),
-    # which are scaled by the token's decimals (or 18 for ETH).  If
-    # suffixed with "wei" the raw integer is used as-is. If args.amountTokenMin or args.amountETHMin are not provided, or its a blank string, use token desired to wei and eth to wei
-    amt_token_min = to_wei_with_decimals(str(args.amountTokenMin), torc_decimals)
-    amt_eth_min = to_wei_with_decimals(str(args.amountETHMin), 18)
-
-    # Deadline defaults to five minutes from now if not provided
-    deadline = int(args.deadline or (int(run(["date", "+%s"])) + 300))
-  
     # preflight balances
     deployer = cast_wallet_address(PK)
     sup_torc = cast_call(RPC_URL, TORC, "balanceOf(address)(uint256)", deployer)
