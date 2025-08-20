@@ -439,6 +439,21 @@ p = sub.add_parser("lp:set-pair-on-torc"); p.add_argument("tokenB", nargs="?", d
 p = sub.add_parser("lp:quote")
 p.add_argument("tokenB", nargs="?", default=None)
 
+# Swaps
+p = sub.add_parser("swap:torc-for-eth")
+p.add_argument("amountTORC", help="amount of TORC to sell (human units, e.g. 123.45 or append 'wei' for raw)")
+p.add_argument("amountETHMin", help="minimum ETH to receive (human units or '<n>wei')")
+p.add_argument("to", nargs="?", default=None)
+p.add_argument("deadline", nargs="?", default=None)
+p.add_argument("--supporting", action="store_true", help="use supporting-fee-on-transfer variant")
+
+p = sub.add_parser("swap:eth-for-torc")
+p.add_argument("amountETH", help="amount of ETH to sell (human units, e.g. 0.5 or append 'wei' for raw)")
+p.add_argument("amountTORCMin", help="minimum TORC to receive (human units or '<n>wei')")
+p.add_argument("to", nargs="?", default=None)
+p.add_argument("deadline", nargs="?", default=None)
+p.add_argument("--supporting", action="store_true", help="use supporting-fee-on-transfer variant")
+
 args = parser.parse_args()
 
 # ------------- Resolve network/RPC/PK -------------
@@ -725,6 +740,69 @@ elif cmd == "lp:quote":
     say(f"Pair reserves (human): TORC={int_commas(Decimal(reserve_torc) / (Decimal(10) ** torc_decimals))} ; ETH={int_commas(Decimal(reserve_eth) / (Decimal(10) ** eth_decimals))} ")
     # convert to human-readable format
     say(f"TORC price (ETH per TORC): {dec_to_fixed_commas(price)} ETH")
+
+# Swaps
+elif cmd == "swap:torc-for-eth":
+    # Convert inputs
+    to_addr = args.to or cast_wallet_address(PK)
+    weth = router_weth(RPC_URL, ROUTER_ADDR)
+    torc_decimals = token_decimals(RPC_URL, TORC)
+    amount_in = to_wei_with_decimals(str(args.amountTORC), torc_decimals)
+    amount_eth_min = to_wei_with_decimals(str(args.amountETHMin), 18)
+    deadline = int(args.deadline or (int(run(["date", "+%s"])) + 300))
+
+    # Approve router to pull TORC
+    say("Approving router for TORC (exact amount)…")
+    approve_exact_if_needed(RPC_URL, PK, TORC, ROUTER_ADDR, amount_in)
+
+    # Build path TORC -> WETH
+    path = json.dumps([TORC, weth])
+    path = path.replace('"', '')
+    path = path.replace(" ", "")
+
+    print(f"cast_send: {RPC_URL}, {PK}, {ROUTER_ADDR}, {amount_in}, {amount_eth_min}, {path}, {to_addr}, {deadline}")
+
+    # Choose function (supporting fee-on-transfer when requested)
+    if args.supporting:
+        fn = "swapExactTokensForETHSupportingFeeOnTransferTokens(uint256,uint256,address[],address,uint256)"
+        say(f"Swapping TORC→ETH via {fn.split('(')[0]} amountIn={amount_in} minOut={amount_eth_min}")
+        
+        cast_send(RPC_URL, PK, ROUTER_ADDR, fn, amount_in, amount_eth_min, path, to_addr, deadline)
+    else:
+        fn = "swapExactTokensForETH(uint256,uint256,address[],address,uint256)"
+        say(f"Swapping TORC→ETH via {fn.split('(')[0]} amountIn={amount_in} minOut={amount_eth_min}")
+        cast_send(RPC_URL, PK, ROUTER_ADDR, fn, amount_in, amount_eth_min, path, to_addr, deadline)
+
+elif cmd == "swap:eth-for-torc":
+    to_addr = args.to or cast_wallet_address(PK)
+    weth = router_weth(RPC_URL, ROUTER_ADDR)
+    torc_decimals = token_decimals(RPC_URL, TORC)
+    amount_eth_in = to_wei_with_decimals(str(args.amountETH), 18)
+    amount_torc_min = to_wei_with_decimals(str(args.amountTORCMin), torc_decimals)
+    deadline = int(args.deadline or (int(run(["date", "+%s"])) + 300))
+
+    # Path WETH -> TORC
+    path = json.dumps([weth, TORC])
+    path = path.replace('"', '')
+    path = path.replace(" ", "")
+    print(f"Path (unquoted): {path}")
+
+    if args.supporting:
+        fn = "swapExactETHForTokensSupportingFeeOnTransferTokens(uint256,address[],address,uint256)"
+        say(f"Swapping ETH→TORC via {fn.split('(')[0]} value={amount_eth_in} minOut={amount_torc_min}")
+        run([
+            "cast", "send", ROUTER_ADDR, fn,
+            str(amount_torc_min), path, to_addr, str(deadline),
+            "--rpc-url", RPC_URL, "--private-key", PK, "--value", wei_str(amount_eth_in)
+        ], capture=False)
+    else:
+        fn = "swapExactETHForTokens(uint256,address[],address,uint256)"
+        say(f"Swapping ETH→TORC via {fn.split('(')[0]} value={amount_eth_in} minOut={amount_torc_min}")
+        run([
+            "cast", "send", ROUTER_ADDR, fn,
+            str(amount_torc_min), path, to_addr, str(deadline),
+            "--rpc-url", RPC_URL, "--private-key", PK, "--value", wei_str(amount_eth_in)
+        ], capture=False)
 
 else:
     die(f"Unknown command: {cmd}")
