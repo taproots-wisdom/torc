@@ -2,6 +2,7 @@
 pragma solidity ^0.8.30;
 
 import "lib/forge-std/src/Test.sol";
+import "lib/forge-std/src/console2.sol";
 import {TORC} from "../src/TORC.sol";
 
 interface IWETH {
@@ -223,5 +224,52 @@ contract Fork_UniswapV2_Test is Test {
         assertTrue(existing != address(0));
         token.setPairAddress(existing);
         assertEq(existing, factory.getPair(address(token), MAINNET_WETH));
+    }
+
+    function testFork_CreatePoolAndQuote_64800000_TORC_75_ETH() public {
+        // Deploy a fresh TORC so we can control TGE and avoid prior state
+        TORC localToken = new TORC(MAINNET_WETH, UNIV2_ROUTER);
+
+        // Configure TGE to mint 64.8 million TORC to ALICE and execute
+        address[] memory recs = new address[](1);
+        uint256[] memory amts = new uint256[](1);
+        recs[0] = ALICE;
+        amts[0] = 64_800_000; // whole tokens (18 decimals applied internally on execute)
+        localToken.configureTGE(recs, amts);
+        localToken.executeTGE();
+
+        // Ensure the factory pair exists; create if needed
+        address p = factory.getPair(address(localToken), MAINNET_WETH);
+        if (p == address(0)) {
+            p = factory.createPair(address(localToken), MAINNET_WETH);
+        }
+        assertTrue(p != address(0), "pair not created");
+
+        // Add liquidity: 64.8M TORC and 75 ETH from ALICE
+        vm.startPrank(ALICE);
+        localToken.approve(UNIV2_ROUTER, type(uint256).max);
+        router.addLiquidityETH{value: 75 ether}(
+            address(localToken), 64_800_000 * 1e18, 0, 0, ALICE, block.timestamp + 300
+        );
+        vm.stopPrank();
+
+        // Only now set the pair address on TORC to avoid fees during LP add
+        localToken.setPairAddress(p);
+
+        // Verify reserves by checking balances held by the pair
+        uint256 reserveTORC = localToken.balanceOf(p);
+        uint256 reserveWETH = weth.balanceOf(p);
+        assertEq(reserveTORC, 64_800_000 * 1e18, "TORC reserve mismatch");
+        assertEq(reserveWETH, 75 ether, "WETH reserve mismatch");
+
+    // Quote price: TORC per 1 ETH = reserveTORC / reserveETH (both 18d → cancels)
+    uint256 torcPerEthInt = reserveTORC / reserveWETH; // 64_800_000 / 75 = 864_000
+    uint256 torcPerEthWad = (reserveTORC * 1e18) / reserveWETH; // 18-dec fixed point
+
+        console2.log("Pair:", p);
+        console2.log("Reserves TORC:", reserveTORC);
+        console2.log("Reserves WETH:", reserveWETH);
+        console2.log("TORC per ETH (int):", torcPerEthInt);
+        console2.log("TORC per ETH (wad 1e18):", torcPerEthWad);
     }
 }
