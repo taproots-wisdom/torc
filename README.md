@@ -14,7 +14,7 @@ The contract is **non-upgradeable**, uses [OpenZeppelin Contracts v5.x](https://
 ## Key Features
 
 ### Tokenomics
-- **Fixed supply cap:** 432 billion TORC (18 decimals).
+- **Fixed supply cap:** 432 million TORC (18 decimals).
 - **Burnable:** Holders or approved spenders can burn tokens.
 - **Token Generation Event (TGE):** One-time configuration & execution to mint allocations.
 - **Non-mintable after TGE:** Supply can only decrease via burns.
@@ -133,7 +133,10 @@ forge test --match-path test/Fork_UniswapV2.t.sol -vv
 Covers:
 
 * Adding liquidity and buying/selling on a real Uniswap V2 pair.
-* Fee accrual and processing to ETH.
+* Creating a pool with 64.8M TORC and 75 ETH, verifying reserves, and logging price (TORC per ETH).
+* Fee accrual and conversion via `processFees`, followed by distribution with a 45/45/10 recipient split.
+* Fee-exempt vs fee-paying swap paths (recipient pays on buys; sender pays on sells).
+* Using router “supporting fee-on-transfer” swap functions for sells to avoid UniswapV2: K reverts.
 * Threshold, partial distribution, and paused pair transfers.
 * Router allowance flips and pair address idempotence.
 
