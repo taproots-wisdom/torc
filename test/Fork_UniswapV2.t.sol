@@ -35,6 +35,13 @@ interface IUniswapV2Router02 {
     function swapExactTokensForETH(
         uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline
     ) external returns (uint[] memory amounts);
+    // Supporting fee-on-transfer tokens
+    function swapExactTokensForETHSupportingFeeOnTransferTokens(
+        uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline
+    ) external;
+    function swapExactETHForTokensSupportingFeeOnTransferTokens(
+        uint amountOutMin, address[] calldata path, address to, uint deadline
+    ) external payable;
 }
 
 /// @title TORC × UniswapV2 – Mainnet-fork integration tests
@@ -58,6 +65,11 @@ contract Fork_UniswapV2_Test is Test {
     address payable constant TREASURY = payable(address(0xBEEF));
     address payable constant ALICE    = payable(address(0xA11CE));
     address payable constant BOB      = payable(address(0xB0B));
+    address payable constant CAROL    = payable(address(0xCAFE));
+    address payable constant DAVE     = payable(address(0xD00D));
+    address payable constant RECIP1   = payable(address(0xFEE1)); // 45%
+    address payable constant RECIP2   = payable(address(0xFEE2)); // 45%
+    address payable constant RECIP3   = payable(address(0xFEE3)); // 10%
 
     // ================================================================
     //                            Setup
@@ -91,6 +103,8 @@ contract Fork_UniswapV2_Test is Test {
 
         vm.deal(ALICE, 1_000 ether);
         vm.deal(BOB,   200 ether);
+    vm.deal(CAROL, 200 ether);
+    vm.deal(DAVE,  200 ether);
     }
 
     // ================================================================
@@ -271,5 +285,101 @@ contract Fork_UniswapV2_Test is Test {
         console2.log("Reserves WETH:", reserveWETH);
         console2.log("TORC per ETH (int):", torcPerEthInt);
         console2.log("TORC per ETH (wad 1e18):", torcPerEthWad);
+    }
+    function testFork_CreateQuote_SetRecipients_SwapsAndDistribute_FeeSplit() public {
+        // Deploy fresh TORC for isolation
+        TORC localToken = new TORC(MAINNET_WETH, UNIV2_ROUTER);
+
+        // TGE: 64.8M TORC to ALICE
+        address[] memory tgeRec = new address[](1);
+        uint256[] memory tgeAmt = new uint256[](1);
+        tgeRec[0] = ALICE; tgeAmt[0] = 64_800_000;
+        localToken.configureTGE(tgeRec, tgeAmt);
+        localToken.executeTGE();
+
+        // Ensure/create pair
+        address p = factory.getPair(address(localToken), MAINNET_WETH);
+        if (p == address(0)) {
+            p = factory.createPair(address(localToken), MAINNET_WETH);
+        }
+        assertTrue(p != address(0), "pair not created");
+
+        // Add liquidity: 64.8M TORC + 75 ETH
+        vm.startPrank(ALICE);
+        localToken.approve(UNIV2_ROUTER, type(uint256).max);
+        router.addLiquidityETH{value: 75 ether}(
+            address(localToken), 64_800_000 * 1e18, 0, 0, ALICE, block.timestamp + 300
+        );
+        vm.stopPrank();
+
+        // Set pair to enable feeing on swaps
+        localToken.setPairAddress(p);
+
+        // Log price TORC per ETH
+        uint256 reserveTORC = localToken.balanceOf(p);
+        uint256 reserveWETH = weth.balanceOf(p);
+        assertEq(reserveTORC, 64_800_000 * 1e18, "TORC reserve mismatch");
+        assertEq(reserveWETH, 75 ether, "WETH reserve mismatch");
+        uint256 torcPerEthInt = reserveTORC / reserveWETH; // 864,000
+        uint256 torcPerEthWad = (reserveTORC * 1e18) / reserveWETH;
+        console2.log("Pair:", p);
+        console2.log("TORC per ETH (int):", torcPerEthInt);
+        console2.log("TORC per ETH (wad 1e18):", torcPerEthWad);
+
+        // Set fee recipients split 45/45/10
+        address[] memory feeRec = new address[](3);
+        uint256[] memory feeBps = new uint256[](3);
+        feeRec[0] = RECIP1; feeBps[0] = 4_500;
+        feeRec[1] = RECIP2; feeBps[1] = 4_500;
+        feeRec[2] = RECIP3; feeBps[2] = 1_000;
+        localToken.setFeeRecipients(feeRec, feeBps);
+
+        // Exempt BOB from fees
+        localToken.setFeeExempt(BOB, true);
+
+        // 1) BOB buys 5 ETH TORC (no fee collected)
+        uint256 feeTorcsBefore = localToken.balanceOf(address(localToken));
+        vm.prank(BOB);
+        router.swapExactETHForTokens{value: 5 ether}(0, _path(MAINNET_WETH, address(localToken)), BOB, block.timestamp + 300);
+        uint256 feeTorcsAfter = localToken.balanceOf(address(localToken));
+        assertEq(feeTorcsAfter, feeTorcsBefore, "Exempt buyer should not pay fee");
+
+        // 2) CAROL buys 8 ETH TORC (fee collected)
+        feeTorcsBefore = localToken.balanceOf(address(localToken));
+        vm.prank(CAROL);
+        router.swapExactETHForTokens{value: 8 ether}(0, _path(MAINNET_WETH, address(localToken)), CAROL, block.timestamp + 300);
+        feeTorcsAfter = localToken.balanceOf(address(localToken));
+        assertGt(feeTorcsAfter, feeTorcsBefore, "Non-exempt buy should collect fee");
+
+        // 3) CAROL sells half TORC (fee collected)
+        uint256 carolBal = localToken.balanceOf(CAROL);
+        vm.startPrank(CAROL);
+        localToken.approve(UNIV2_ROUTER, type(uint256).max);
+        router.swapExactTokensForETHSupportingFeeOnTransferTokens(
+            carolBal / 2, 0, _path(address(localToken), MAINNET_WETH), CAROL, block.timestamp + 300
+        );
+        vm.stopPrank();
+
+        // Convert collected TORC fees to ETH
+        localToken.processFees(0, 0, new address[](0), block.timestamp + 300);
+        uint256 totalAccrued = localToken.accumulatedFeeWei();
+        assertGt(totalAccrued, 0, "No ETH accrued");
+
+        // Record balances then distribute
+        uint256 r1Before = RECIP1.balance;
+        uint256 r2Before = RECIP2.balance;
+        uint256 r3Before = RECIP3.balance;
+        localToken.distributeFees(0);
+
+        uint256 exp1 = (totalAccrued * 4_500) / 10_000;
+        uint256 exp2 = (totalAccrued * 4_500) / 10_000;
+        uint256 exp3 = (totalAccrued * 1_000) / 10_000;
+
+        assertEq(RECIP1.balance - r1Before, exp1, "RECIP1 share mismatch");
+        assertEq(RECIP2.balance - r2Before, exp2, "RECIP2 share mismatch");
+        assertEq(RECIP3.balance - r3Before, exp3, "RECIP3 share mismatch");
+
+        uint256 leftover = localToken.accumulatedFeeWei();
+        assertLe(leftover, (totalAccrued - (exp1 + exp2 + exp3)), "Leftover inconsistent");
     }
 }
