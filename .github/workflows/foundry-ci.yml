@@ -85,4 +85,4 @@ jobs:
           echo "ETHERSCAN_API_KEY=${{ secrets.ETHERSCAN_API_KEY }}" >> .env
 
       - name: Run forked tests (Uniswap V2, etc.)
-        run: forge test --match-path "test/Fork_*.t.sol" --gas-report
+        run: forge test --gas-report -vvv --via-ir
