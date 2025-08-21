@@ -142,6 +142,53 @@ Covers:
 
 ---
 
+## Frontend test site (local)
+
+MetaMask won’t inject on file:// pages; serve the demo over http(s).
+
+Prereqs: Node.js (with npx) or Python 3.
+
+Serve over HTTP
+
+```powershell
+# from repo root
+cd frontend
+# Option A: Python
+python -m http.server 5173
+# browse http://127.0.0.1:5173
+
+# Option B: Node
+npx http-server . -p 5173
+# browse http://localhost:5173
+```
+
+Serve over HTTPS (optional)
+
+```powershell
+# generate a local cert (mkcert)
+cd frontend
+mkcert localhost 127.0.0.1
+# serve with TLS via http-server
+npx http-server . -p 8443 -S -C .\localhost+1.pem -K .\localhost+1-key.pem
+# browse https://localhost:8443
+```
+
+Mobile testing without deploy (optional)
+
+```powershell
+# expose your local server
+ngrok http 5173
+# or
+cloudflared tunnel --url http://localhost:5173
+```
+
+Notes
+- Ensure the wallet network matches the configured router/token/pair addresses in `frontend/index.html`.
+- Allow the MetaMask extension on the site (not “on click” only).
+- The demo uses EIP‑1193 detection and only enables actions after account approval.
+
+---
+
 ## File Structure
 
 ```
