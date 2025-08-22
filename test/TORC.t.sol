@@ -976,4 +976,61 @@ contract TORCTest is Test {
         vm.expectRevert(TORC.ZeroAddress.selector);
         token.emergencyWithdrawERC20(address(weth), 0, address(0));
     }
+
+    // --- Buy-side fee (pair -> user) ---
+    function test_Buy_FeeCharged() public {
+        // Seller ALICE sends to pair first to seed pair balance
+        uint256 sellAmount = 1_000 * 1e18; // 1000 TORC
+        vm.prank(ALICE);
+        token.transfer(PAIR, sellAmount); // fee 3% => 30 TORC collected, 970 to pair
+        assertEq(token.balanceOf(address(token)), (sellAmount * 300) / 10_000);
+        uint256 pairBal = token.balanceOf(PAIR);
+        assertEq(pairBal, 970 * 1e18);
+
+        // Now pair sends tokens to BOB (buy). Fee should be charged (payer = BOB, but fee is skimmed from amount sent by pair so BOB receives less)
+        vm.prank(PAIR);
+        token.transfer(BOB, pairBal); // attempt to transfer full 970
+        uint256 secondFee = (pairBal * 300) / 10_000; // 29.1 -> 29
+        uint256 expectedNet = pairBal - secondFee;
+        // Total fee tokens now 30 + 29 = 59
+        assertEq(token.balanceOf(address(token)), ((sellAmount * 300) / 10_000) + secondFee);
+        assertEq(token.balanceOf(BOB), expectedNet);
+    }
+
+    function test_Buy_FeeExemptRecipient_NoFee() public {
+        // Seed pair with tokens via ALICE sell
+        vm.prank(ALICE);
+        token.transfer(PAIR, 1_000 * 1e18); // fee 30, pair 970
+        // Exempt BOB
+        token.setFeeExempt(BOB, true);
+        uint256 feeSoFar = token.balanceOf(address(token));
+        vm.prank(PAIR);
+        token.transfer(BOB, 970 * 1e18); // should NOT take additional fee
+        assertEq(token.balanceOf(address(token)), feeSoFar, "no extra fee when recipient exempt on buy");
+        assertEq(token.balanceOf(BOB), 970 * 1e18);
+    }
+
+    // --- processFees: custom path branch (non-empty path provided) ---
+    function test_ProcessFees_CustomPath_Used() public {
+        _makeFees(50_000 * 1e18); // fee 1500 TORC -> expect 1.5 ETH
+        address dummy = address(uint160(uint256(keccak256("DUMMY"))));
+        address[] memory path = new address[](3);
+        path[0] = address(token);
+        path[1] = dummy; // ignored by mock router other than length check
+        path[2] = address(weth);
+        token.processFees(0, 0, path, block.timestamp + 300);
+        assertApproxEqAbs(token.accumulatedFeeWei(), 1.5 ether, 1 wei);
+    }
+
+    // --- processFees: amountIn clamp (amountIn > balance) ---
+    function test_ProcessFees_AmountClamp() public {
+        _makeFees(100_000 * 1e18); // 3000 TORC
+        uint256 torcBal = token.balanceOf(address(token));
+        assertEq(torcBal, 3_000 * 1e18);
+        // Request swap of more than balance -> should clamp to torcBal
+        token.processFees(10_000_000 * 1e18, 0, new address[](0), block.timestamp + 300);
+        // All fee TORC spent
+        assertEq(token.balanceOf(address(token)), 0, "should have swapped full balance only");
+        assertApproxEqAbs(token.accumulatedFeeWei(), (torcBal / 1000), 1 wei); // RATE_DIV=1000
+    }
 }
