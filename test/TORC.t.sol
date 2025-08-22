@@ -6,6 +6,8 @@ import {TORC} from "../src/TORC.sol";
 import {MockWETH} from "./mocks/MockWETH.sol";
 import {MockRouter} from "./mocks/MockRouter.sol";
 import {ReentrantRecipient} from "./mocks/ReentrantRecipient.sol";
+import {AlwaysRevertRecipient} from "./mocks/AlwaysRevertRecipient.sol";
+import {TestableTORC} from "./mocks/TestableTORC.sol";
 
 contract TORCTest is Test {
     // Allow this test contract to receive ETH (needed for MockWETH.withdraw)
@@ -1032,5 +1034,181 @@ contract TORCTest is Test {
         // All fee TORC spent
         assertEq(token.balanceOf(address(token)), 0, "should have swapped full balance only");
         assertApproxEqAbs(token.accumulatedFeeWei(), (torcBal / 1000), 1 wei); // RATE_DIV=1000
+    }
+
+    // setRouter zero address guard (covers revert line)
+    function test_SetRouter_ZeroAddress_Revert() public {
+        vm.expectRevert(TORC.ZeroAddress.selector);
+        token.setRouter(address(0));
+    }
+
+    // setWETH zero address guard (covers revert line in setWETH)
+    function test_SetWETH_ZeroAddress_Revert() public {
+        vm.expectRevert(TORC.ZeroAddress.selector);
+        token.setWETH(address(0));
+    }
+
+    // configureTGE length mismatch / empty array guard
+    function test_TGE_Configure_LengthMismatch_Empty() public {
+        TORC t = new TORC(address(weth), address(router));
+        address[] memory recs = new address[](0);
+        uint256[] memory amts = new uint256[](0);
+        vm.expectRevert(TORC.LengthMismatch.selector);
+        t.configureTGE(recs, amts); // len==0 triggers revert
+    }
+
+    function test_TGE_Configure_LengthMismatch_DifferentLengths() public {
+        TORC t = new TORC(address(weth), address(router));
+        address[] memory recs = new address[](1);
+        uint256[] memory amts = new uint256[](2);
+        recs[0] = ALICE;
+        amts[0] = 1; amts[1] = 2;
+        vm.expectRevert(TORC.LengthMismatch.selector);
+        t.configureTGE(recs, amts);
+    }
+
+    // configureTGE: zero address recipient -> InvalidRecipient
+    function test_TGE_Configure_InvalidRecipient_ZeroAddress() public {
+        TORC t = new TORC(address(weth), address(router));
+        address[] memory recs = new address[](1);
+        uint256[] memory amts = new uint256[](1);
+        recs[0] = address(0);
+        amts[0] = 1;
+        vm.expectRevert(TORC.InvalidRecipient.selector);
+        t.configureTGE(recs, amts);
+    }
+
+    // configureTGE: zero amount allocation -> InvalidAmount
+    function test_TGE_Configure_InvalidAmount_ZeroAllocation() public {
+        TORC t = new TORC(address(weth), address(router));
+        address[] memory recs = new address[](1);
+        uint256[] memory amts = new uint256[](1);
+        recs[0] = ALICE;
+        amts[0] = 0; // zero amount
+        vm.expectRevert(TORC.InvalidAmount.selector);
+        t.configureTGE(recs, amts);
+    }
+
+    // configureTGE: duplicate recipient within single call -> DuplicateRecipient
+    function test_TGE_Configure_DuplicateRecipient_InCall() public {
+        TORC t = new TORC(address(weth), address(router));
+        address[] memory recs = new address[](2);
+        uint256[] memory amts = new uint256[](2);
+        recs[0] = ALICE;
+        recs[1] = ALICE; // duplicate
+        amts[0] = 5;
+        amts[1] = 10;
+        vm.expectRevert(TORC.DuplicateRecipient.selector);
+        t.configureTGE(recs, amts);
+    }
+
+    // claimFees push failure path -> ETHTransferFailed (line 444)
+    function test_ClaimFees_RevertOnFailedSend() public {
+        // Deploy fresh token & configure fee recipients where one recipient will revert on receive
+        TORC t = new TORC(address(weth), address(router));
+        // Create a recipient that reverts on receive
+        AlwaysRevertRecipient bad = new AlwaysRevertRecipient(address(t));
+        address[] memory recs = new address[](2);
+        uint256[] memory bps = new uint256[](2);
+        recs[0] = address(bad); bps[0] = 7000;
+        recs[1] = BOB;         bps[1] = 3000;
+        t.setFeeRecipients(recs, bps);
+
+        // Configure & execute TGE so ALICE has tokens to generate fees
+        address[] memory trec = new address[](1);
+        uint256[] memory tamt = new uint256[](1);
+        trec[0] = ALICE; tamt[0] = 100_000; // whole tokens
+        t.configureTGE(trec, tamt);
+        t.executeTGE();
+        // Set pair (needed for fees) and fund ALICE ETH
+        t.setPairAddress(PAIR);
+        vm.deal(ALICE, 5 ether);
+        vm.deal(address(router), 50 ether);
+
+        // Generate fees by selling to pair
+        vm.prank(ALICE);
+        t.transfer(PAIR, 50_000 * 1e18); // 3% fee -> 1500e18 TORC in contract
+        // Swap fees to ETH
+        t.processFees(0, 0, new address[](0), block.timestamp + 300);
+        uint256 acc = t.accumulatedFeeWei();
+        assertGt(acc, 0);
+
+        // Distribute fully so pending/attempted push occurs. Bad recipient push will fail => pending
+        t.distributeFees(acc);
+        // Its pending balance should now be non-zero (pushed failed), BOB got paid
+        uint256 pendingBefore = t.pendingEth(address(bad));
+        assertGt(pendingBefore, 0, "expected pending for bad recipient");
+
+        // Now impersonate bad contract and attempt claim -> receive() will revert, claimFees should revert ETHTransferFailed
+        vm.prank(address(bad));
+        vm.expectRevert(TORC.ETHTransferFailed.selector);
+        bad.claim();
+    }
+
+    // _accrueDistribution clamp test: amount > accumulatedFeeWei -> clamps to accumulated (line 454)
+    function test_AccrueDistribution_ClampToAccumulated() public {
+        // Use harness exposing internal function
+        TestableTORC t = new TestableTORC(address(weth), address(router));
+        // Recipients
+        address[] memory recs = new address[](2);
+        uint256[] memory bps = new uint256[](2);
+        recs[0] = BOB; bps[0] = 6000;
+        recs[1] = CAROL; bps[1] = 4000;
+        t.setFeeRecipients(recs, bps);
+
+        // TGE allocate to ALICE
+        address[] memory trec = new address[](1);
+        uint256[] memory tamt = new uint256[](1);
+        trec[0] = ALICE; tamt[0] = 100_000;
+        t.configureTGE(trec, tamt);
+        t.executeTGE();
+        t.setPairAddress(PAIR);
+        vm.deal(ALICE, 5 ether);
+        vm.deal(address(router), 50 ether);
+
+        // Generate fee tokens (3% of 50k)
+        vm.prank(ALICE); t.transfer(PAIR, 50_000 * 1e18); // fee 1500e18
+        // Swap all fee TORC -> ETH
+        t.processFees(0, 0, new address[](0), block.timestamp + 300);
+        uint256 acc = t.accumulatedFeeWei();
+        assertGt(acc, 0);
+
+        // Call internal accrue with oversized amount (10x) to trigger clamp to accumulatedFeeWei
+        uint256 bobBefore = BOB.balance;
+        uint256 carolBefore = CAROL.balance;
+        t.callAccrueDistribution(acc * 10);
+        // After distribution accumulated should be zero
+        assertEq(t.accumulatedFeeWei(), 0, "acc not fully consumed");
+        uint256 distributed = (BOB.balance - bobBefore) + (CAROL.balance - carolBefore);
+        assertApproxEqAbs(distributed, acc, 1 wei);
+    }
+
+    // Explicit coverage for pause() line (_pause() internal call) without additional logic
+    function test_Pause_StateFlip() public {
+        assertFalse(token.paused(), "should start unpaused");
+        token.pause();
+        assertTrue(token.paused(), "pause() did not set state");
+    }
+
+    // Explicit coverage for unpause() line (_unpause() internal call)
+    function test_Unpause_StateFlip() public {
+        token.pause();
+        assertTrue(token.paused(), "expected paused");
+        token.unpause();
+        assertFalse(token.paused(), "expected unpaused after unpause()");
+        // sanity: transfer works again
+        vm.prank(ALICE);
+        token.transfer(BOB, 1e18);
+    }
+
+    // emergencyWithdrawETH: failed low-level send triggers ETHTransferFailed (line 566)
+    function test_EmergencyWithdrawETH_FailedSend_Reverts() public {
+        // Seed token contract with ETH
+        (bool ok,) = address(token).call{value: 1 ether}("");
+        require(ok, "seed eth fail");
+        // Recipient that always reverts on receive
+        AlwaysRevertRecipient bad = new AlwaysRevertRecipient(address(token));
+        vm.expectRevert(TORC.ETHTransferFailed.selector);
+        token.emergencyWithdrawETH(0.5 ether, address(bad));
     }
 }
