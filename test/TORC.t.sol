@@ -8,6 +8,7 @@ import {MockRouter} from "./mocks/MockRouter.sol";
 import {ReentrantRecipient} from "./mocks/ReentrantRecipient.sol";
 import {AlwaysRevertRecipient} from "./mocks/AlwaysRevertRecipient.sol";
 import {TestableTORC} from "./mocks/TestableTORC.sol";
+import {DecimalsMutateTORC} from "./mocks/DecimalsMutateTORC.sol";
 
 contract TORCTest is Test {
     // Allow this test contract to receive ETH (needed for MockWETH.withdraw)
@@ -663,6 +664,22 @@ contract TORCTest is Test {
         t.executeTGE();
     }
 
+    // executeTGE over-cap check (trigger revert when minting due to decimals inflation after configure)
+    function test_ExecuteTGE_OverCapDuringMint_Reverts() public {
+        // Start with decimals=0 so large MAX_SUPPLY constant (18 decimals) easily accommodates allocation
+        DecimalsMutateTORC h = new DecimalsMutateTORC(address(weth), address(router), 0);
+        // Configure a trivial allocation (1) which passes cap check at decimals=0
+        address[] memory recs = new address[](1);
+        uint256[] memory amts = new uint256[](1);
+        recs[0] = ALICE;
+        amts[0] = 1; // totalAllocation * 10**0 = 1 << MAX_SUPPLY
+        h.configureTGE(recs, amts);
+        // Inflate decimals so mintAmount = 1 * 10**40 which will exceed MAX_SUPPLY (4.32e26)
+        h.setDecimals(40);
+        vm.expectRevert(TORC.ExceedsMaxSupply.selector);
+        h.executeTGE();
+    }
+
     // --- EIP-2612: permit -> approve -> transferFrom (using .env key) ---
     function test_Permit_ApproveAndTransferFrom_EnvKey() public {
         (bool ok, uint256 ownerPk) = _tryGetPk();
@@ -1207,6 +1224,22 @@ contract TORCTest is Test {
         // sanity: transfer works again
         vm.prank(ALICE);
         token.transfer(BOB, 1e18);
+    }
+
+    // Additional: calling pause() while already paused should revert (covers require branch in _pause())
+    function test_Pause_DoublePause_Reverts() public {
+        assertFalse(token.paused());
+        token.pause();
+        assertTrue(token.paused());
+        vm.expectRevert(); // Pausable: paused already
+        token.pause();
+    }
+
+    // Additional: calling unpause() while not paused should revert (covers require branch in _unpause())
+    function test_Unpause_WhileNotPaused_Reverts() public {
+        assertFalse(token.paused());
+        vm.expectRevert(); // Pausable: not paused
+        token.unpause();
     }
 
     // emergencyWithdrawETH: failed low-level send triggers ETHTransferFailed (line 566)
