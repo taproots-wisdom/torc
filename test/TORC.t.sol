@@ -921,8 +921,10 @@ contract TORCTest is Test {
         // set recipients
         address[] memory recs = new address[](2);
         uint256[] memory bps = new uint256[](2);
-        recs[0] = BOB; bps[0] = 6000;
-        recs[1] = CAROL; bps[1] = 4000;
+        recs[0] = BOB;
+        bps[0] = 6000;
+        recs[1] = CAROL;
+        bps[1] = 4000;
         token.setFeeRecipients(recs, bps);
         // produce ~3 ETH
         _makeFees(100_000 * 1e18);
@@ -948,8 +950,10 @@ contract TORCTest is Test {
     function test_DistributeFees_NoETHButAccumulated() public {
         address[] memory recs = new address[](2);
         uint256[] memory bps = new uint256[](2);
-        recs[0] = BOB; bps[0] = 5000;
-        recs[1] = CAROL; bps[1] = 5000;
+        recs[0] = BOB;
+        bps[0] = 5000;
+        recs[1] = CAROL;
+        bps[1] = 5000;
         token.setFeeRecipients(recs, bps);
         _makeFees(50_000 * 1e18); // 1500 TORC
         token.processFees(0, 0, new address[](0), block.timestamp + 300); // ~1.5 ETH
