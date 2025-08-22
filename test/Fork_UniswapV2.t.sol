@@ -23,24 +23,36 @@ interface IUniswapV2Router02 {
     function WETH() external view returns (address);
     function addLiquidityETH(
         address token,
-        uint amountTokenDesired,
-        uint amountTokenMin,
-        uint amountETHMin,
+        uint256 amountTokenDesired,
+        uint256 amountTokenMin,
+        uint256 amountETHMin,
         address to,
-        uint deadline
-    ) external payable returns (uint amountToken, uint amountETH, uint liquidity);
-    function swapExactETHForTokens(
-        uint amountOutMin, address[] calldata path, address to, uint deadline
-    ) external payable returns (uint[] memory amounts);
+        uint256 deadline
+    ) external payable returns (uint256 amountToken, uint256 amountETH, uint256 liquidity);
+    function swapExactETHForTokens(uint256 amountOutMin, address[] calldata path, address to, uint256 deadline)
+        external
+        payable
+        returns (uint256[] memory amounts);
     function swapExactTokensForETH(
-        uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline
-    ) external returns (uint[] memory amounts);
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) external returns (uint256[] memory amounts);
     // Supporting fee-on-transfer tokens
     function swapExactTokensForETHSupportingFeeOnTransferTokens(
-        uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 deadline
     ) external;
     function swapExactETHForTokensSupportingFeeOnTransferTokens(
-        uint amountOutMin, address[] calldata path, address to, uint deadline
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 deadline
     ) external payable;
 }
 
@@ -50,26 +62,26 @@ interface IUniswapV2Router02 {
 /// @dev Requires `MAINNET_RPC_URL` in your environment. Forks at a fixed block for determinism.
 contract Fork_UniswapV2_Test is Test {
     // --- Mainnet addresses ---
-    address constant UNIV2_ROUTER  = 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D;
+    address constant UNIV2_ROUTER = 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D;
     address constant UNIV2_FACTORY = 0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f;
-    address constant MAINNET_WETH  = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
+    address constant MAINNET_WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
 
     IUniswapV2Router02 router = IUniswapV2Router02(UNIV2_ROUTER);
-    IUniswapV2Factory  factory = IUniswapV2Factory(UNIV2_FACTORY);
-    IWETH              weth    = IWETH(MAINNET_WETH);
+    IUniswapV2Factory factory = IUniswapV2Factory(UNIV2_FACTORY);
+    IWETH weth = IWETH(MAINNET_WETH);
 
     TORC token;
     address pair;
 
     // --- Actors ---
     address payable constant TREASURY = payable(address(0xBEEF));
-    address payable constant ALICE    = payable(address(0xA11CE));
-    address payable constant BOB      = payable(address(0xB0B));
-    address payable constant CAROL    = payable(address(0xCAFE));
-    address payable constant DAVE     = payable(address(0xD00D));
-    address payable constant RECIP1   = payable(address(0xFEE1)); // 45%
-    address payable constant RECIP2   = payable(address(0xFEE2)); // 45%
-    address payable constant RECIP3   = payable(address(0xFEE3)); // 10%
+    address payable constant ALICE = payable(address(0xA11CE));
+    address payable constant BOB = payable(address(0xB0B));
+    address payable constant CAROL = payable(address(0xCAFE));
+    address payable constant DAVE = payable(address(0xD00D));
+    address payable constant RECIP1 = payable(address(0xFEE1)); // 45%
+    address payable constant RECIP2 = payable(address(0xFEE2)); // 45%
+    address payable constant RECIP3 = payable(address(0xFEE3)); // 10%
 
     // ================================================================
     //                            Setup
@@ -84,13 +96,15 @@ contract Fork_UniswapV2_Test is Test {
         // 100% fees → TREASURY
         address[] memory recs = new address[](1);
         uint256[] memory bps = new uint256[](1);
-        recs[0] = TREASURY; bps[0] = 10_000;
+        recs[0] = TREASURY;
+        bps[0] = 10_000;
         token.setFeeRecipients(recs, bps);
 
         // TGE → ALICE
         address[] memory tgeRec = new address[](1);
         uint256[] memory tgeAmt = new uint256[](1);
-        tgeRec[0] = ALICE; tgeAmt[0] = 10_000_000;
+        tgeRec[0] = ALICE;
+        tgeAmt[0] = 10_000_000;
         token.configureTGE(tgeRec, tgeAmt);
         token.executeTGE();
 
@@ -102,9 +116,9 @@ contract Fork_UniswapV2_Test is Test {
         token.setPairAddress(pair);
 
         vm.deal(ALICE, 1_000 ether);
-        vm.deal(BOB,   200 ether);
-    vm.deal(CAROL, 200 ether);
-    vm.deal(DAVE,  200 ether);
+        vm.deal(BOB, 200 ether);
+        vm.deal(CAROL, 200 ether);
+        vm.deal(DAVE, 200 ether);
     }
 
     // ================================================================
@@ -112,33 +126,35 @@ contract Fork_UniswapV2_Test is Test {
     // ================================================================
 
     function _path(address a, address b) internal pure returns (address[] memory p) {
-        p = new address[](2); p[0] = a; p[1] = b;
+        p = new address[](2);
+        p[0] = a;
+        p[1] = b;
     }
-    function _exempt(address who) internal { token.setFeeExempt(who, true); }
-    function _unexempt(address who) internal { token.setFeeExempt(who, false); }
+
+    function _exempt(address who) internal {
+        token.setFeeExempt(who, true);
+    }
+
+    function _unexempt(address who) internal {
+        token.setFeeExempt(who, false);
+    }
 
     function _addLP(address provider, uint256 ethAmt, uint256 tokenAmt, address receiver) internal {
         vm.startPrank(provider);
         token.approve(UNIV2_ROUTER, type(uint256).max);
-        router.addLiquidityETH{value: ethAmt}(
-            address(token), tokenAmt, 0, 0, receiver, block.timestamp + 300
-        );
+        router.addLiquidityETH{value: ethAmt}(address(token), tokenAmt, 0, 0, receiver, block.timestamp + 300);
         vm.stopPrank();
     }
 
     function _buy(address buyer, uint256 ethIn) internal {
         vm.startPrank(buyer);
-        router.swapExactETHForTokens{value: ethIn}(
-            0, _path(MAINNET_WETH, address(token)), buyer, block.timestamp + 300
-        );
+        router.swapExactETHForTokens{value: ethIn}(0, _path(MAINNET_WETH, address(token)), buyer, block.timestamp + 300);
         vm.stopPrank();
     }
 
     /// @notice Seed LP from ALICE, then perform a buy from BOB.
     /// @dev Optionally exempts LP provider during add. Useful for tests that need immediate fee accrual.
-    function _seedPoolAndBuy(
-        uint256 lpEth, uint256 lpToken, uint256 buyEth, bool exemptProvider
-    ) internal {
+    function _seedPoolAndBuy(uint256 lpEth, uint256 lpToken, uint256 buyEth, bool exemptProvider) internal {
         if (exemptProvider) _exempt(ALICE);
         _addLP(ALICE, lpEth, lpToken, ALICE);
         if (exemptProvider) _unexempt(ALICE);
@@ -216,9 +232,7 @@ contract Fork_UniswapV2_Test is Test {
         vm.startPrank(BOB);
         token.approve(UNIV2_ROUTER, type(uint256).max);
         vm.expectRevert();
-        router.swapExactTokensForETH(
-            10_000 * 1e18, 0, _path(address(token), MAINNET_WETH), BOB, block.timestamp + 300
-        );
+        router.swapExactTokensForETH(10_000 * 1e18, 0, _path(address(token), MAINNET_WETH), BOB, block.timestamp + 300);
         vm.stopPrank();
         token.unpause();
     }
@@ -276,9 +290,9 @@ contract Fork_UniswapV2_Test is Test {
         assertEq(reserveTORC, 64_800_000 * 1e18, "TORC reserve mismatch");
         assertEq(reserveWETH, 75 ether, "WETH reserve mismatch");
 
-    // Quote price: TORC per 1 ETH = reserveTORC / reserveETH (both 18d → cancels)
-    uint256 torcPerEthInt = reserveTORC / reserveWETH; // 64_800_000 / 75 = 864_000
-    uint256 torcPerEthWad = (reserveTORC * 1e18) / reserveWETH; // 18-dec fixed point
+        // Quote price: TORC per 1 ETH = reserveTORC / reserveETH (both 18d → cancels)
+        uint256 torcPerEthInt = reserveTORC / reserveWETH; // 64_800_000 / 75 = 864_000
+        uint256 torcPerEthWad = (reserveTORC * 1e18) / reserveWETH; // 18-dec fixed point
 
         console2.log("Pair:", p);
         console2.log("Reserves TORC:", reserveTORC);
@@ -286,6 +300,7 @@ contract Fork_UniswapV2_Test is Test {
         console2.log("TORC per ETH (int):", torcPerEthInt);
         console2.log("TORC per ETH (wad 1e18):", torcPerEthWad);
     }
+
     function testFork_CreateQuote_SetRecipients_SwapsAndDistribute_FeeSplit() public {
         // Deploy fresh TORC for isolation
         TORC localToken = new TORC(MAINNET_WETH, UNIV2_ROUTER);
@@ -293,7 +308,8 @@ contract Fork_UniswapV2_Test is Test {
         // TGE: 64.8M TORC to ALICE
         address[] memory tgeRec = new address[](1);
         uint256[] memory tgeAmt = new uint256[](1);
-        tgeRec[0] = ALICE; tgeAmt[0] = 64_800_000;
+        tgeRec[0] = ALICE;
+        tgeAmt[0] = 64_800_000;
         localToken.configureTGE(tgeRec, tgeAmt);
         localToken.executeTGE();
 
@@ -329,9 +345,12 @@ contract Fork_UniswapV2_Test is Test {
         // Set fee recipients split 45/45/10
         address[] memory feeRec = new address[](3);
         uint256[] memory feeBps = new uint256[](3);
-        feeRec[0] = RECIP1; feeBps[0] = 4_500;
-        feeRec[1] = RECIP2; feeBps[1] = 4_500;
-        feeRec[2] = RECIP3; feeBps[2] = 1_000;
+        feeRec[0] = RECIP1;
+        feeBps[0] = 4_500;
+        feeRec[1] = RECIP2;
+        feeBps[1] = 4_500;
+        feeRec[2] = RECIP3;
+        feeBps[2] = 1_000;
         localToken.setFeeRecipients(feeRec, feeBps);
 
         // Exempt BOB from fees
@@ -340,14 +359,18 @@ contract Fork_UniswapV2_Test is Test {
         // 1) BOB buys 5 ETH TORC (no fee collected)
         uint256 feeTorcsBefore = localToken.balanceOf(address(localToken));
         vm.prank(BOB);
-        router.swapExactETHForTokens{value: 5 ether}(0, _path(MAINNET_WETH, address(localToken)), BOB, block.timestamp + 300);
+        router.swapExactETHForTokens{value: 5 ether}(
+            0, _path(MAINNET_WETH, address(localToken)), BOB, block.timestamp + 300
+        );
         uint256 feeTorcsAfter = localToken.balanceOf(address(localToken));
         assertEq(feeTorcsAfter, feeTorcsBefore, "Exempt buyer should not pay fee");
 
         // 2) CAROL buys 8 ETH TORC (fee collected)
         feeTorcsBefore = localToken.balanceOf(address(localToken));
         vm.prank(CAROL);
-        router.swapExactETHForTokens{value: 8 ether}(0, _path(MAINNET_WETH, address(localToken)), CAROL, block.timestamp + 300);
+        router.swapExactETHForTokens{value: 8 ether}(
+            0, _path(MAINNET_WETH, address(localToken)), CAROL, block.timestamp + 300
+        );
         feeTorcsAfter = localToken.balanceOf(address(localToken));
         assertGt(feeTorcsAfter, feeTorcsBefore, "Non-exempt buy should collect fee");
 

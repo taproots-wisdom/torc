@@ -10,8 +10,14 @@ contract MockRouter {
     /// 1000 TORC (in wei) -> 1 ETH (in wei)
     uint256 public RATE_DIV = 1000;
 
-    function setRevert(bool v) external { revertSwaps = v; }
-    function setRateDiv(uint256 v) external { require(v > 0, "rate=0"); RATE_DIV = v; }
+    function setRevert(bool v) external {
+        revertSwaps = v;
+    }
+
+    function setRateDiv(uint256 v) external {
+        require(v > 0, "rate=0");
+        RATE_DIV = v;
+    }
 
     receive() external payable {}
 
@@ -32,7 +38,7 @@ contract MockRouter {
         require(ethOut >= amountOutMin, "slippage");
 
         lastTo = to;
-        (bool ok, ) = to.call{value: ethOut}("");
+        (bool ok,) = to.call{value: ethOut}("");
         require(ok, "eth out");
 
         amounts = new uint256[](path.length);

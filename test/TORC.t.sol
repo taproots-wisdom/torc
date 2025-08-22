@@ -8,21 +8,24 @@ import {MockRouter} from "./mocks/MockRouter.sol";
 import {ReentrantRecipient} from "./mocks/ReentrantRecipient.sol";
 
 contract TORCTest is Test {
+    // Allow this test contract to receive ETH (needed for MockWETH.withdraw)
+    receive() external payable {}
+
     TORC token;
     MockRouter router;
     MockWETH weth;
 
     address payable constant ALICE = payable(address(uint160(uint256(keccak256("ALICE")))));
-    address payable constant BOB   = payable(address(uint160(uint256(keccak256("BOB")))));
+    address payable constant BOB = payable(address(uint160(uint256(keccak256("BOB")))));
     address payable constant CAROL = payable(address(uint160(uint256(keccak256("CAROL")))));
-    address payable constant DAVE  = payable(address(uint160(uint256(keccak256("DAVE")))));
-    address payable constant ERIN  = payable(address(uint160(uint256(keccak256("ERIN")))));
+    address payable constant DAVE = payable(address(uint160(uint256(keccak256("DAVE")))));
+    address payable constant ERIN = payable(address(uint160(uint256(keccak256("ERIN")))));
 
     address constant PAIR = address(uint160(uint256(keccak256("PAIR"))));
 
     function setUp() public {
         // deploy mocks
-        weth   = new MockWETH();
+        weth = new MockWETH();
         router = new MockRouter();
 
         // deploy TORC
@@ -34,13 +37,14 @@ contract TORCTest is Test {
         // TGE -> mint ALICE some tokens
         address[] memory recs = new address[](1);
         uint256[] memory amts = new uint256[](1);
-        recs[0] = ALICE; amts[0] = 1_000_000; // whole tokens (1,000,000 * 1e18)
+        recs[0] = ALICE;
+        amts[0] = 1_000_000; // whole tokens (1,000,000 * 1e18)
         token.configureTGE(recs, amts);
         token.executeTGE();
 
         // fund accounts / router
         vm.deal(ALICE, 10 ether);
-        vm.deal(BOB,   10 ether);
+        vm.deal(BOB, 10 ether);
         vm.deal(CAROL, 10 ether);
         vm.deal(address(router), 100 ether); // router pays out swaps
     }
@@ -59,9 +63,16 @@ contract TORCTest is Test {
 
     // Gracefully read TOKEN_OWNER_PK from .env, skipping tests if missing.
     function _tryGetPk() internal view returns (bool ok, uint256 pk) {
-        try this.__readPk() returns (uint256 got) { return (true, got); } catch { return (false, 0); }
+        try this.__readPk() returns (uint256 got) {
+            return (true, got);
+        } catch {
+            return (false, 0);
+        }
     }
-    function __readPk() external view returns (uint256) { return vm.envUint("TOKEN_OWNER_PK"); }
+
+    function __readPk() external view returns (uint256) {
+        return vm.envUint("TOKEN_OWNER_PK");
+    }
 
     // EIP-712/2612 constants for OZ ERC20Permit (name="TORC", version="1")
     bytes32 constant _EIP712DOMAIN_TYPEHASH =
@@ -73,25 +84,21 @@ contract TORCTest is Test {
         return keccak256(
             abi.encode(
                 _EIP712DOMAIN_TYPEHASH,
-                keccak256(bytes(token.name())),     // "TORC"
-                keccak256(bytes("1")),             // ERC20Permit version
+                keccak256(bytes(token.name())), // "TORC"
+                keccak256(bytes("1")), // ERC20Permit version
                 block.chainid,
                 address(token)
             )
         );
     }
 
-    function _signPermit(
-        uint256 pk,
-        address owner,
-        address spender,
-        uint256 value,
-        uint256 deadline
-    ) internal view returns (uint8 v, bytes32 r, bytes32 s) {
+    function _signPermit(uint256 pk, address owner, address spender, uint256 value, uint256 deadline)
+        internal
+        view
+        returns (uint8 v, bytes32 r, bytes32 s)
+    {
         uint256 nonce = token.nonces(owner);
-        bytes32 structHash = keccak256(
-            abi.encode(_PERMIT_TYPEHASH, owner, spender, value, nonce, deadline)
-        );
+        bytes32 structHash = keccak256(abi.encode(_PERMIT_TYPEHASH, owner, spender, value, nonce, deadline));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
         return vm.sign(pk, digest);
     }
@@ -105,13 +112,10 @@ contract TORCTest is Test {
         uint256 deadline,
         uint256 nonce
     ) internal view returns (uint8 v, bytes32 r, bytes32 s) {
-        bytes32 structHash = keccak256(
-            abi.encode(_PERMIT_TYPEHASH, owner, spender, value, nonce, deadline)
-        );
+        bytes32 structHash = keccak256(abi.encode(_PERMIT_TYPEHASH, owner, spender, value, nonce, deadline));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
         return vm.sign(pk, digest);
     }
-
 
     // 1) Reentrancy attempts via recipient fallback
     function test_ReentrancyFallback_PendingAndClaimWorks() public {
@@ -119,12 +123,14 @@ contract TORCTest is Test {
         ReentrantRecipient reent = new ReentrantRecipient(address(token));
         address[] memory recs = new address[](2);
         uint256[] memory bps = new uint256[](2);
-        recs[0] = address(reent); bps[0] = 6000;
-        recs[1] = BOB;            bps[1] = 4000;
+        recs[0] = address(reent);
+        bps[0] = 6000;
+        recs[1] = BOB;
+        bps[1] = 4000;
         token.setFeeRecipients(recs, bps);
 
         // produce fees & process
-        uint256 amount  = 100_000 * 1e18;    // 100k TORC
+        uint256 amount = 100_000 * 1e18; // 100k TORC
         uint256 feeTorc = _makeFees(amount); // 3k TORC fee
         assertEq(feeTorc, 3_000 * 1e18);
         // router RATE_DIV=1000 => 3000e18 / 1000 = 3 ETH
@@ -138,8 +144,8 @@ contract TORCTest is Test {
         token.distributeFees(received);
 
         uint256 reentPending = token.pendingEth(address(reent));
-        uint256 bobShare     = (received * 4000) / 10_000;
-        uint256 reentShare   = (received * 6000) / 10_000;
+        uint256 bobShare = (received * 4000) / 10_000;
+        uint256 reentShare = (received * 6000) / 10_000;
 
         assertEq(BOB.balance, bobBefore + bobShare, "bob not paid");
         assertEq(reentPending, reentShare, "reentrant pending wrong");
@@ -176,54 +182,64 @@ contract TORCTest is Test {
         // recipients: 5 addrs with varied bps (sum 10000)
         address[] memory recs = new address[](5);
         uint256[] memory bps = new uint256[](5);
-        recs[0]=ALICE; bps[0]=2000;
-        recs[1]=BOB;   bps[1]=3000;
-        recs[2]=CAROL; bps[2]=1000;
-        recs[3]=DAVE;  bps[3]=1500;
-        recs[4]=ERIN;  bps[4]=2500;
+        recs[0] = ALICE;
+        bps[0] = 2000;
+        recs[1] = BOB;
+        bps[1] = 3000;
+        recs[2] = CAROL;
+        bps[2] = 1000;
+        recs[3] = DAVE;
+        bps[3] = 1500;
+        recs[4] = ERIN;
+        bps[4] = 2500;
         token.setFeeRecipients(recs, bps);
 
         // generate large fees -> 30 ETH after swap
         uint256 amount = 1_000_000 * 1e18; // 1m TORC
-        _makeFees(amount);                 // 30,000 TORC fee
+        _makeFees(amount); // 30,000 TORC fee
         token.processFees(0, 0, new address[](0), block.timestamp + 300);
         assertEq(token.accumulatedFeeWei(), 30 ether, "want 30 ETH");
 
         // Range 1: allocate 2 ETH across [0..3)
         token.distributeFeesRange(2 ether, 0, 3);
         // check pending for first 3 recipients only
-        assertEq(token.pendingEth(ALICE), (2 ether * 2000)/10000);
-        assertEq(token.pendingEth(BOB),   (2 ether * 3000)/10000);
-        assertEq(token.pendingEth(CAROL), (2 ether * 1000)/10000);
-        assertEq(token.pendingEth(DAVE),  0);
-        assertEq(token.pendingEth(ERIN),  0);
+        assertEq(token.pendingEth(ALICE), (2 ether * 2000) / 10000);
+        assertEq(token.pendingEth(BOB), (2 ether * 3000) / 10000);
+        assertEq(token.pendingEth(CAROL), (2 ether * 1000) / 10000);
+        assertEq(token.pendingEth(DAVE), 0);
+        assertEq(token.pendingEth(ERIN), 0);
 
         // Range 2: allocate same 'amount' slice across [3..5)
         token.distributeFeesRange(2 ether, 3, 5);
-        assertEq(token.pendingEth(DAVE),  (2 ether * 1500)/10000);
-        assertEq(token.pendingEth(ERIN),  (2 ether * 2500)/10000);
+        assertEq(token.pendingEth(DAVE), (2 ether * 1500) / 10000);
+        assertEq(token.pendingEth(ERIN), (2 ether * 2500) / 10000);
 
         // accumulated decreased by exactly 2 ETH (sum ranges)
         assertEq(token.accumulatedFeeWei(), 28 ether);
 
         // claims succeed
         uint256 aliceBefore = ALICE.balance;
-        uint256 bobBefore   = BOB.balance;
-        uint256 carBefore   = CAROL.balance;
-        uint256 daveBefore  = DAVE.balance;
-        uint256 erinBefore  = ERIN.balance;
+        uint256 bobBefore = BOB.balance;
+        uint256 carBefore = CAROL.balance;
+        uint256 daveBefore = DAVE.balance;
+        uint256 erinBefore = ERIN.balance;
 
-        vm.prank(ALICE); token.claimFees();
-        vm.prank(BOB);   token.claimFees();
-        vm.prank(CAROL); token.claimFees();
-        vm.prank(DAVE);  token.claimFees();
-        vm.prank(ERIN);  token.claimFees();
+        vm.prank(ALICE);
+        token.claimFees();
+        vm.prank(BOB);
+        token.claimFees();
+        vm.prank(CAROL);
+        token.claimFees();
+        vm.prank(DAVE);
+        token.claimFees();
+        vm.prank(ERIN);
+        token.claimFees();
 
-        assertEq(ALICE.balance, aliceBefore + (2 ether * 2000)/10000);
-        assertEq(BOB.balance,   bobBefore   + (2 ether * 3000)/10000);
-        assertEq(CAROL.balance, carBefore   + (2 ether * 1000)/10000);
-        assertEq(DAVE.balance,  daveBefore  + (2 ether * 1500)/10000);
-        assertEq(ERIN.balance,  erinBefore  + (2 ether * 2500)/10000);
+        assertEq(ALICE.balance, aliceBefore + (2 ether * 2000) / 10000);
+        assertEq(BOB.balance, bobBefore + (2 ether * 3000) / 10000);
+        assertEq(CAROL.balance, carBefore + (2 ether * 1000) / 10000);
+        assertEq(DAVE.balance, daveBefore + (2 ether * 1500) / 10000);
+        assertEq(ERIN.balance, erinBefore + (2 ether * 2500) / 10000);
     }
 
     // 4) Threshold auto‑accrual after processFees
@@ -231,8 +247,10 @@ contract TORCTest is Test {
         // recipients: 2 EOAs, 50/50
         address[] memory recs = new address[](2);
         uint256[] memory bps = new uint256[](2);
-        recs[0]=BOB;  bps[0]=5000;
-        recs[1]=CAROL;bps[1]=5000;
+        recs[0] = BOB;
+        bps[0] = 5000;
+        recs[1] = CAROL;
+        bps[1] = 5000;
         token.setFeeRecipients(recs, bps);
 
         // set threshold to 1 wei so any received triggers accrual+push
@@ -240,7 +258,7 @@ contract TORCTest is Test {
 
         // generate ~3 ETH
         _makeFees(100_000 * 1e18);
-        uint256 beforeBob   = BOB.balance;
+        uint256 beforeBob = BOB.balance;
         uint256 beforeCarol = CAROL.balance;
 
         // auto-accrual triggers inside processFees
@@ -250,7 +268,7 @@ contract TORCTest is Test {
         assertEq(token.accumulatedFeeWei(), 0, "should have auto-distributed");
 
         // both recipients got 1.5 ETH each
-        assertEq(BOB.balance,   beforeBob   + 1.5 ether);
+        assertEq(BOB.balance, beforeBob + 1.5 ether);
         assertEq(CAROL.balance, beforeCarol + 1.5 ether);
     }
 
@@ -285,13 +303,13 @@ contract TORCTest is Test {
 
         // invalid path should revert
         address[] memory bad = new address[](2);
-        bad[0] = dummy;         // must start with TORC
+        bad[0] = dummy; // must start with TORC
         bad[1] = address(weth2);
         vm.expectRevert(TORC.InvalidPath.selector);
         token.setDefaultSwapPath(bad);
     }
 
-        // -----------------------
+    // -----------------------
     // Edge cases / regressions
     // -----------------------
 
@@ -322,7 +340,8 @@ contract TORCTest is Test {
         // Configure TGE -> mint ALICE
         address[] memory rec = new address[](1);
         uint256[] memory amt = new uint256[](1);
-        rec[0] = ALICE; amt[0] = 10_000;
+        rec[0] = ALICE;
+        amt[0] = 10_000;
         t.configureTGE(rec, amt);
         t.executeTGE();
 
@@ -332,8 +351,8 @@ contract TORCTest is Test {
         assertEq(t.balanceOf(address(t)), 0, "no pair => no fee");
     }
 
-    // Pausing blocks transfers but allows mint/burn; executeTGE is also blocked when paused.
-    function test_Pause_BlocksTransfers_AllowsBurn_MintBlockedOnPause() public {
+    // Pausing blocks transfers and executeTGE is also blocked when paused.
+    function test_Pause_BlocksTransfers_ExecuteTGEBlockedOnPause() public {
         // Pause
         token.pause();
 
@@ -342,17 +361,12 @@ contract TORCTest is Test {
         vm.expectRevert(TORC.TransferWhilePaused.selector);
         token.transfer(BOB, 1e18);
 
-        // Burn is allowed while paused (to == address(0))
-        uint256 before = token.balanceOf(ALICE);
-        vm.prank(ALICE);
-        token.burn(1e18);
-        assertEq(token.balanceOf(ALICE), before - 1e18);
-
         // On a fresh token, executeTGE should revert while paused
         TORC t = new TORC(address(weth), address(router));
         address[] memory rec = new address[](1);
         uint256[] memory amt = new uint256[](1);
-        rec[0] = ALICE; amt[0] = 1;
+        rec[0] = ALICE;
+        amt[0] = 1;
         t.configureTGE(rec, amt);
         t.pause();
         vm.expectRevert(); // whenNotPaused modifier revert
@@ -406,24 +420,39 @@ contract TORCTest is Test {
         // Length mismatch
         address[] memory recs = new address[](2);
         uint256[] memory bps = new uint256[](1);
-        recs[0] = BOB; recs[1] = CAROL; bps[0] = 10_000;
+        recs[0] = BOB;
+        recs[1] = CAROL;
+        bps[0] = 10_000;
         vm.expectRevert(TORC.LengthMismatch.selector);
         token.setFeeRecipients(recs, bps);
 
         // Zero address recipient
         address[] memory recs2 = new address[](1);
         uint256[] memory bps2 = new uint256[](1);
-        recs2[0] = address(0); bps2[0] = 10_000;
+        recs2[0] = address(0);
+        bps2[0] = 10_000;
         vm.expectRevert(TORC.InvalidRecipient.selector);
         token.setFeeRecipients(recs2, bps2);
 
         // Sum != 10000
         address[] memory recs3 = new address[](2);
         uint256[] memory bps3 = new uint256[](2);
-        recs3[0] = BOB; bps3[0] = 4000;
-        recs3[1] = CAROL; bps3[1] = 4000; // sum 8000
+        recs3[0] = BOB;
+        bps3[0] = 4000;
+        recs3[1] = CAROL;
+        bps3[1] = 4000; // sum 8000
         vm.expectRevert(TORC.BpsSumNot10000.selector);
         token.setFeeRecipients(recs3, bps3);
+
+        // Duplicate recipient
+        address[] memory recs4 = new address[](2);
+        uint256[] memory bps4 = new uint256[](2);
+        recs4[0] = BOB;
+        bps4[0] = 5000;
+        recs4[1] = BOB;
+        bps4[1] = 5000;
+        vm.expectRevert(TORC.DuplicateRecipient.selector);
+        token.setFeeRecipients(recs4, bps4);
     }
 
     // distributeFeesRange index checks.
@@ -431,8 +460,10 @@ contract TORCTest is Test {
         // set minimal recipients
         address[] memory recs = new address[](2);
         uint256[] memory bps = new uint256[](2);
-        recs[0] = BOB; bps[0] = 5000;
-        recs[1] = CAROL; bps[1] = 5000;
+        recs[0] = BOB;
+        bps[0] = 5000;
+        recs[1] = CAROL;
+        bps[1] = 5000;
         token.setFeeRecipients(recs, bps);
 
         // accrue some ETH
@@ -453,6 +484,81 @@ contract TORCTest is Test {
         token.setSwapFee(1000); // 10% OK
         vm.expectRevert(TORC.FeeTooHigh.selector);
         token.setSwapFee(1001);
+    }
+
+    // claimFees with zero pending should revert
+    function test_ClaimFees_NoPending_Reverts() public {
+        vm.expectRevert(TORC.InvalidAmount.selector);
+        token.claimFees();
+    }
+
+    // distributeFees with zero accumulated should early return (no revert)
+    function test_DistributeFees_Zero_NoOp() public {
+        token.distributeFees(0);
+        assertEq(token.accumulatedFeeWei(), 0);
+    }
+
+    // distributeFeesRange with zero accumulated should no-op silently (coverage)
+    function test_DistributeFeesRange_Zero_NoOp() public {
+        token.distributeFeesRange(0, 0, 0);
+        assertEq(token.accumulatedFeeWei(), 0);
+    }
+
+    // processFees invalid path (length<2) using custom path arg
+    function test_ProcessFees_PathTooShort_Reverts() public {
+        _makeFees(10_000 * 1e18);
+        address[] memory bad = new address[](1);
+        bad[0] = address(token);
+        vm.expectRevert(TORC.InvalidPath.selector);
+        token.processFees(0, 0, bad, block.timestamp + 300);
+    }
+
+    // Exercise MockRouter.setRateDiv for coverage (non-zero change) and back
+    function test_Router_SetRateDiv_AffectsProcess() public {
+        _makeFees(200_000 * 1e18); // 6k TORC -> default 6 ETH at div=1000
+        router.setRateDiv(2000); // now expect ~3 ETH
+        token.processFees(0, 0, new address[](0), block.timestamp + 300);
+        uint256 first = token.accumulatedFeeWei();
+        assertApproxEqAbs(first, 3 ether, 1 wei);
+
+        // Generate more fees and change rate again
+        _makeFees(100_000 * 1e18); // 3k TORC
+        router.setRateDiv(1500); // 3000/1500=2 ETH
+        token.processFees(0, 0, new address[](0), block.timestamp + 300);
+        uint256 total = token.accumulatedFeeWei();
+        assertApproxEqAbs(total, first + 2 ether, 2 wei);
+    }
+
+    // Exercise MockWETH.withdraw path (not used by token directly) for coverage
+    function test_MockWETH_Withdraw() public {
+        // Deposit 1 ETH -> get 1 WETH
+        vm.deal(address(this), address(this).balance + 1 ether);
+        (bool ok,) = address(weth).call{value: 1 ether}("");
+        require(ok, "deposit fail");
+        uint256 balBefore = address(this).balance;
+        weth.withdraw(0.4 ether);
+        assertEq(weth.balanceOf(address(this)), 0.6 ether);
+        assertEq(address(this).balance, balBefore + 0.4 ether);
+    }
+
+    // inDistribution flag branch: simulate by crafting recipients and forcing push
+    function test_Distribution_InDistributionFlag() public {
+        address[] memory recs = new address[](2);
+        uint256[] memory bps = new uint256[](2);
+        recs[0] = BOB;
+        bps[0] = 7000;
+        recs[1] = CAROL;
+        bps[1] = 3000;
+        token.setFeeRecipients(recs, bps);
+        _makeFees(50_000 * 1e18);
+        token.processFees(0, 0, new address[](0), block.timestamp + 300);
+        uint256 acc = token.accumulatedFeeWei();
+        uint256 bobBefore = BOB.balance;
+        uint256 carolBefore = CAROL.balance;
+        token.distributeFees(acc);
+        // balances increased proportionally
+        assertEq(BOB.balance - bobBefore, (acc * 7000) / 10000);
+        assertEq(CAROL.balance - carolBefore, (acc * 3000) / 10000);
     }
 
     // Setting pair to zero address is forbidden.
@@ -525,14 +631,16 @@ contract TORCTest is Test {
         // Over-cap on configure
         address[] memory rec1 = new address[](1);
         uint256[] memory amt1 = new uint256[](1);
-        rec1[0] = ALICE; amt1[0] = 432_000_000_001; // > max supply in whole tokens
+        rec1[0] = ALICE;
+        amt1[0] = 432_000_000_001; // > max supply in whole tokens
         vm.expectRevert(TORC.ExceedsMaxSupply.selector);
         t.configureTGE(rec1, amt1);
 
         // Configure once OK
         address[] memory rec2 = new address[](1);
         uint256[] memory amt2 = new uint256[](1);
-        rec2[0] = ALICE; amt2[0] = 10;
+        rec2[0] = ALICE;
+        amt2[0] = 10;
         t.configureTGE(rec2, amt2);
 
         // Configure again -> AlreadyConfigured
@@ -556,7 +664,10 @@ contract TORCTest is Test {
     // --- EIP-2612: permit -> approve -> transferFrom (using .env key) ---
     function test_Permit_ApproveAndTransferFrom_EnvKey() public {
         (bool ok, uint256 ownerPk) = _tryGetPk();
-        if (!ok) { emit log("TOKEN_OWNER_PK not set; skipping"); return; }
+        if (!ok) {
+            emit log("TOKEN_OWNER_PK not set; skipping");
+            return;
+        }
         address owner = vm.addr(ownerPk);
 
         // fund owner with TORC
@@ -564,7 +675,7 @@ contract TORCTest is Test {
         token.transfer(owner, 1_000 ether);
 
         // sign permit for BOB
-        uint256 value    = 400 ether;
+        uint256 value = 400 ether;
         uint256 deadline = block.timestamp + 1 days;
         (uint8 v, bytes32 r, bytes32 s) = _signPermit(ownerPk, owner, BOB, value, deadline);
 
@@ -588,47 +699,13 @@ contract TORCTest is Test {
         assertEq(token.allowance(owner, BOB), value - pull, "allowance not reduced");
     }
 
-    // --- EIP-2612: permit -> burnFrom flow (using .env key) ---
-    function test_Permit_BurnFrom_EnvKey() public {
-        (bool ok, uint256 ownerPk) = _tryGetPk();
-        if (!ok) { emit log("TOKEN_OWNER_PK not set; skipping"); return; }
-        address owner = vm.addr(ownerPk);
-
-        // fund owner with TORC
-        vm.prank(ALICE);
-        token.transfer(owner, 600 ether);
-
-        // approve BOB via permit for 300
-        uint256 value    = 300 ether;
-        uint256 deadline = block.timestamp + 1 days;
-        (uint8 v, bytes32 r, bytes32 s) = _signPermit(ownerPk, owner, BOB, value, deadline);
-        token.permit(owner, BOB, value, deadline, v, r, s);
-
-        // burn 120 from owner by BOB
-        uint256 tsBefore = token.totalSupply();
-        uint256 ownerBefore = token.balanceOf(owner);
-        vm.prank(BOB);
-        token.burnFrom(owner, 120 ether);
-
-        assertEq(token.totalSupply(), tsBefore - 120 ether, "supply not reduced");
-        assertEq(token.balanceOf(owner), ownerBefore - 120 ether, "owner balance not reduced");
-        assertEq(token.allowance(owner, BOB), 180 ether, "allowance not reduced after burn");
-
-        // cannot burn beyond remaining allowance
-        vm.prank(BOB);
-        vm.expectRevert(); // OZ ERC20InsufficientAllowance or generic revert
-        token.burnFrom(owner, 181 ether);
-
-        // can burn exactly remaining allowance
-        vm.prank(BOB);
-        token.burnFrom(owner, 180 ether);
-        assertEq(token.allowance(owner, BOB), 0);
-    }
-
     // --- EIP-2612: expired deadline should revert ---
     function test_Permit_ExpiredDeadline_Reverts_EnvKey() public {
         (bool ok, uint256 ownerPk) = _tryGetPk();
-        if (!ok) { emit log("TOKEN_OWNER_PK not set; skipping"); return; }
+        if (!ok) {
+            emit log("TOKEN_OWNER_PK not set; skipping");
+            return;
+        }
         address owner = vm.addr(ownerPk);
 
         vm.prank(ALICE);
@@ -645,7 +722,10 @@ contract TORCTest is Test {
     // --- EIP-2612: wrong signer (signature doesn't match owner) ---
     function test_Permit_WrongSigner_Reverts_EnvKey() public {
         (bool ok, uint256 ownerPk) = _tryGetPk();
-        if (!ok) { emit log("TOKEN_OWNER_PK not set; skipping"); return; }
+        if (!ok) {
+            emit log("TOKEN_OWNER_PK not set; skipping");
+            return;
+        }
         address owner = vm.addr(ownerPk);
 
         vm.prank(ALICE);
@@ -661,10 +741,13 @@ contract TORCTest is Test {
         token.permit(owner, BOB, value, deadline, v, r, s);
     }
 
-        // --- EIP-2612: multiple permits bump nonce; allowance is SET (not additive) ---
+    // --- EIP-2612: multiple permits bump nonce; allowance is SET (not additive) ---
     function test_Permit_NonceBump_MultiPermits_EnvKey() public {
         (bool ok, uint256 ownerPk) = _tryGetPk();
-        if (!ok) { emit log("TOKEN_OWNER_PK not set; skipping"); return; }
+        if (!ok) {
+            emit log("TOKEN_OWNER_PK not set; skipping");
+            return;
+        }
         address owner = vm.addr(ownerPk);
 
         vm.prank(ALICE);
@@ -698,7 +781,10 @@ contract TORCTest is Test {
     // --- EIP-2612: global (per-owner) nonce blocks stale signatures across different spenders ---
     function test_Permit_StaleSignatureAcrossSpenders_Reverts_EnvKey() public {
         (bool ok, uint256 ownerPk) = _tryGetPk();
-        if (!ok) { emit log("TOKEN_OWNER_PK not set; skipping"); return; }
+        if (!ok) {
+            emit log("TOKEN_OWNER_PK not set; skipping");
+            return;
+        }
         address owner = vm.addr(ownerPk);
 
         vm.prank(ALICE);
@@ -725,7 +811,10 @@ contract TORCTest is Test {
     // --- EIP-2612: chainId drift invalidates signatures until re-signed ---
     function test_Permit_ChainIdDrift_RevertsThenReSign_EnvKey() public {
         (bool ok, uint256 ownerPk) = _tryGetPk();
-        if (!ok) { emit log("TOKEN_OWNER_PK not set; skipping"); return; }
+        if (!ok) {
+            emit log("TOKEN_OWNER_PK not set; skipping");
+            return;
+        }
         address owner = vm.addr(ownerPk);
 
         vm.prank(ALICE);
@@ -755,7 +844,10 @@ contract TORCTest is Test {
     // --- EIP-2612: replay protection with stale signature after a later permit ---
     function test_Permit_ReplayAfterNewPermit_Reverts_EnvKey() public {
         (bool ok, uint256 ownerPk) = _tryGetPk();
-        if (!ok) { emit log("TOKEN_OWNER_PK not set; skipping"); return; }
+        if (!ok) {
+            emit log("TOKEN_OWNER_PK not set; skipping");
+            return;
+        }
         address owner = vm.addr(ownerPk);
 
         vm.prank(ALICE);
@@ -778,6 +870,4 @@ contract TORCTest is Test {
         vm.expectRevert();
         token.permit(owner, BOB, 75 ether, deadline, v0, r0, s0);
     }
-
-
 }

@@ -12,7 +12,7 @@ contract TORC_Fuzz is Test {
     MockWETH weth;
 
     address payable constant ALICE = payable(address(uint160(uint256(keccak256("ALICE")))));
-    address payable constant BOB   = payable(address(uint160(uint256(keccak256("BOB")))));
+    address payable constant BOB = payable(address(uint160(uint256(keccak256("BOB")))));
     address payable constant CAROL = payable(address(uint160(uint256(keccak256("CAROL")))));
     address constant PAIR = address(uint160(uint256(keccak256("PAIR"))));
 
@@ -23,9 +23,9 @@ contract TORC_Fuzz is Test {
         keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)");
 
     function setUp() public {
-        weth   = new MockWETH();
+        weth = new MockWETH();
         router = new MockRouter();
-        token  = new TORC(address(weth), address(router));
+        token = new TORC(address(weth), address(router));
 
         // configure pair
         token.setPairAddress(PAIR);
@@ -33,7 +33,8 @@ contract TORC_Fuzz is Test {
         // simple TGE (mint to ALICE big supply for fuzz)
         address[] memory recs = new address[](1);
         uint256[] memory amts = new uint256[](1);
-        recs[0] = ALICE; amts[0] = 100_000_000; // 100m * 1e18
+        recs[0] = ALICE;
+        amts[0] = 100_000_000; // 100m * 1e18
         token.configureTGE(recs, amts);
         token.executeTGE();
 
@@ -43,7 +44,8 @@ contract TORC_Fuzz is Test {
         // default recipients (100% → BOB) so distribution checks are simple
         address[] memory fr = new address[](1);
         uint256[] memory fb = new uint256[](1);
-        fr[0] = BOB; fb[0] = 10_000;
+        fr[0] = BOB;
+        fb[0] = 10_000;
         token.setFeeRecipients(fr, fb);
     }
 
@@ -103,8 +105,10 @@ contract TORC_Fuzz is Test {
 
         address[] memory recs = new address[](2);
         uint256[] memory bps = new uint256[](2);
-        recs[0] = BOB;   bps[0] = aBps;
-        recs[1] = CAROL; bps[1] = bBps;
+        recs[0] = BOB;
+        bps[0] = aBps;
+        recs[1] = CAROL;
+        bps[1] = bBps;
         token.setFeeRecipients(recs, bps);
 
         // Create fees with a sell
@@ -145,21 +149,24 @@ contract TORC_Fuzz is Test {
         // Prepare recipients: 3 addrs with 40/30/30
         address[] memory recs = new address[](3);
         uint256[] memory bps = new uint256[](3);
-        recs[0]=ALICE; bps[0]=4000;
-        recs[1]=BOB;   bps[1]=3000;
-        recs[2]=CAROL; bps[2]=3000;
+        recs[0] = ALICE;
+        bps[0] = 4000;
+        recs[1] = BOB;
+        bps[1] = 3000;
+        recs[2] = CAROL;
+        bps[2] = 3000;
         token.setFeeRecipients(recs, bps);
 
         // Create + process some fees so there is ETH to distribute
         vm.prank(ALICE);
         token.transfer(PAIR, 100_000e18);
-        token.processFees(0,0,new address[](0), block.timestamp + 300);
+        token.processFees(0, 0, new address[](0), block.timestamp + 300);
         vm.assume(token.accumulatedFeeWei() > 0);
 
         // fuzz indices
         uint256 len = 3;
         start = uint16(bound(start, 0, 5));
-        end   = uint16(bound(end, 0, 5));
+        end = uint16(bound(end, 0, 5));
 
         if (start >= end || end > len) {
             vm.expectRevert(TORC.LengthMismatch.selector);
@@ -186,16 +193,13 @@ contract TORC_Fuzz is Test {
         );
     }
 
-    function _signPermit(
-        uint256 pk,
-        address owner,
-        address spender,
-        uint256 value,
-        uint256 deadline
-    ) internal view returns (uint8 v, bytes32 r, bytes32 s) {
-        bytes32 structHash = keccak256(
-            abi.encode(_PERMIT_TYPEHASH, owner, spender, value, token.nonces(owner), deadline)
-        );
+    function _signPermit(uint256 pk, address owner, address spender, uint256 value, uint256 deadline)
+        internal
+        view
+        returns (uint8 v, bytes32 r, bytes32 s)
+    {
+        bytes32 structHash =
+            keccak256(abi.encode(_PERMIT_TYPEHASH, owner, spender, value, token.nonces(owner), deadline));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
         return vm.sign(pk, digest);
     }
@@ -205,7 +209,7 @@ contract TORC_Fuzz is Test {
         // Bound pk to (1..secp256k1n-1)
         // secp n ≈ 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
         uint256 N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141;
-        rawPk = bound(rawPk, 1, N-1);
+        rawPk = bound(rawPk, 1, N - 1);
         address owner = vm.addr(rawPk);
 
         // give owner tokens

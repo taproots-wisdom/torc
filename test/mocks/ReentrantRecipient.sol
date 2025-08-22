@@ -13,11 +13,13 @@ contract ReentrantRecipient {
     // Controls whether receive() reverts.
     bool public revertOnReceive = true;
 
-    constructor(address _token) { token = ITORC(_token); }
+    constructor(address _token) {
+        token = ITORC(_token);
+    }
 
     receive() external payable {
         // Try to reenter; should be blocked by nonReentrant.
-        try token.distributeFees(1) { } catch { }
+        try token.distributeFees(1) {} catch {}
         // For push payouts we want to fail so it accrues to pending.
         if (revertOnReceive) {
             revert("reentrant-receiver: revert");

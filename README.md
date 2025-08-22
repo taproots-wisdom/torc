@@ -1,5 +1,5 @@
 # TORC ERC-20 Token
-[![Foundry CI](https://github.com/taproots-wisdom/torc/actions/workflows/foundry-ci.yml/badge.svg)](https://github.com/taproots-wisdom/torc/actions/workflows/foundry-ci.yml) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0) [![Solidity](https://img.shields.io/badge/solidity-0.8.30-363636?logo=solidity&logoColor=white)](https://docs.soliditylang.org/en/v0.8.30/) [![Built with Foundry](https://img.shields.io/badge/built%20with-Foundry-fc8f00)](https://book.getfoundry.sh/) [![OpenZeppelin](https://img.shields.io/badge/OpenZeppelin-5.4-4E5EE4?logo=openzeppelin&logoColor=white)](https://github.com/OpenZeppelin/openzeppelin-contracts) ![EIP-2612](https://img.shields.io/badge/EIP--2612-permit-2ea44f) [![Sepolia Deploy](https://img.shields.io/badge/deploy-sepolia-6f3dc8?logo=ethereum&logoColor=white)](https://sepolia.etherscan.io/address/0x4f8fef11622837b5497ba67de26b41bb6a071059) [![Issues](https://img.shields.io/github/issues/taproots-wisdom/torc)](https://github.com/taproots-wisdom/torc/issues) [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](.)
+[![Foundry CI](https://github.com/taproots-wisdom/torc/actions/workflows/foundry-ci.yml/badge.svg)](https://github.com/taproots-wisdom/torc/actions/workflows/foundry-ci.yml) [![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/taproots-wisdom/torc/main/coverage-badge.json)](./lcov.info) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0) [![Solidity](https://img.shields.io/badge/solidity-0.8.30-363636?logo=solidity&logoColor=white)](https://docs.soliditylang.org/en/v0.8.30/) [![Built with Foundry](https://img.shields.io/badge/built%20with-Foundry-fc8f00)](https://book.getfoundry.sh/) [![OpenZeppelin](https://img.shields.io/badge/OpenZeppelin-5.4-4E5EE4?logo=openzeppelin&logoColor=white)](https://github.com/OpenZeppelin/openzeppelin-contracts) ![EIP-2612](https://img.shields.io/badge/EIP--2612-permit-2ea44f) [![Sepolia Deploy](https://img.shields.io/badge/deploy-sepolia-6f3dc8?logo=ethereum&logoColor=white)](https://sepolia.etherscan.io/address/0x4f8fef11622837b5497ba67de26b41bb6a071059) [![Issues](https://img.shields.io/github/issues/taproots-wisdom/torc)](https://github.com/taproots-wisdom/torc/issues) [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](.)
 
 
 
@@ -15,9 +15,8 @@ The contract is **non-upgradeable**, uses [OpenZeppelin Contracts v5.x](https://
 
 ### Tokenomics
 - **Fixed supply cap:** 432 million TORC (18 decimals).
-- **Burnable:** Holders or approved spenders can burn tokens.
 - **Token Generation Event (TGE):** One-time configuration & execution to mint allocations.
-- **Non-mintable after TGE:** Supply can only decrease via burns.
+- **Non-mintable after TGE:** Supply is capped at 432 million TORC.
 
 ### ERC Standards
 - **ERC-20** base implementation.
@@ -38,10 +37,10 @@ The contract is **non-upgradeable**, uses [OpenZeppelin Contracts v5.x](https://
 - **Role-based access control:**
   - `DEFAULT_ADMIN_ROLE`: Full control, emergency withdraws.
   - `FEE_MANAGER_ROLE`: Fee config, exemption lists, router/path updates.
-  - `PAUSER_ROLE`: Pause/unpause transfers (except mint/burn).
+  - `PAUSER_ROLE`: Pause/unpause transfers.
   - `TGE_MANAGER_ROLE`: Configure and execute TGE.
   - `FEE_EXEMPT_ROLE`: Exempt address from paying swap fee.
-- **Pausable:** Blocks transfers but still allows mint/burn and fee claims.
+- **Pausable:** Blocks transfers.
 - **Emergency withdraws:** Admin-only retrieval of stuck ETH/ERC-20.
 
 ### Miscellaneous

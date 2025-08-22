@@ -42,5 +42,43 @@ jobs:
           echo "ETHERSCAN_API_KEY=${{ secrets.ETHERSCAN_API_KEY }}" >> .env
 
       - name: Run local tests (no fork)
-        run: forge test --gas-report -vvv --via-ir
-
+        run: |
+          forge fmt --check
+          forge test --gas-report -vvv --via-ir
+          forge test --gas-report -vvv --fuzz-runs 50000 --via-ir
+          forge coverage --via-ir --ir-minimum --report lcov
+      - name: Summarize coverage
+        if: always()
+        run: |
+          if [ -f lcov.info ]; then
+            TOTAL_LINE_COV=$(awk -F: '/^LF:/ {lf+=$2} /^LH:/ {lh+=$2} END { if (lf>0) printf("%.2f", (lh/lf)*100); }' lcov.info)
+            echo "## Solidity Coverage" >> $GITHUB_STEP_SUMMARY
+            echo "Total line coverage: ${TOTAL_LINE_COV}%" >> $GITHUB_STEP_SUMMARY
+            echo '' >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            # Per-file summary (only for source files under src/)
+            awk -F: '
+              /^SF:/ {file=$2}
+              /^LF:/ {lf=$2}
+              /^LH:/ {lh=$2; if (lf>0 && file ~ /src\//) {printf("%s: %.2f%% (%d/%d)\n", file, (lh/lf)*100, lh, lf)} }
+            ' lcov.info | sort -k2 -r >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            # Generate simple badge JSON artifact
+            PCT_INT=$(awk -F: '/^LF:/ {lf+=$2} /^LH:/ {lh+=$2} END { if (lf>0) printf("%.0f", (lh/lf)*100); }' lcov.info)
+            COLOR=red
+            if [ "$PCT_INT" -ge 90 ]; then COLOR=brightgreen; elif [ "$PCT_INT" -ge 80 ]; then COLOR=green; elif [ "$PCT_INT" -ge 70 ]; then COLOR=yellow; elif [ "$PCT_INT" -ge 60 ]; then COLOR=orange; fi
+            echo "{\"schemaVersion\":1,\"label\":\"coverage\",\"message\":\"${PCT_INT}%\",\"color\":\"$COLOR\"}" > coverage-badge.json
+          else
+            echo "## Solidity Coverage" >> $GITHUB_STEP_SUMMARY
+            echo "lcov.info not found" >> $GITHUB_STEP_SUMMARY
+          fi
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: |
+            lcov.info
+            coverage-badge.json
+          if-no-files-found: warn
+          retention-days: 7

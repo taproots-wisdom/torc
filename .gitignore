@@ -39,3 +39,5 @@ pnpm-debug.log*
 # Optional: compiled scripts (if generated separately)
 dist/
 build/
+coverage-badge.json
+lcov.info

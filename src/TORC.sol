@@ -2,7 +2,7 @@
 pragma solidity ^0.8.30;
 
 /**
- * @title TORC ERC‑20 Token 
+ * @title TORC ERC‑20 Token
  * @notice
  * - Fixed supply cap, burnable, EIP‑2612 permit, pausible, role-based ACL
  * - Swap fee ONLY on transfers involving the configured pair (e.g. Uniswap pool)
@@ -12,9 +12,7 @@ pragma solidity ^0.8.30;
  * - Optional auto-accrual when a distribution threshold is reached (no auto-push in transfer path)
  * - Non-upgradeable; uses OpenZeppelin Contracts v5.x
  */
-
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
@@ -40,23 +38,16 @@ interface IUniswapV2Router02 {
     ) external returns (uint256[] memory amounts);
 }
 
-contract TORC is
-    ERC20,
-    ERC20Burnable,
-    ERC20Permit,
-    Pausable,
-    AccessControl,
-    ReentrancyGuard
-{
+contract TORC is ERC20, ERC20Permit, Pausable, AccessControl, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     // ------------------------------------------------------------------------
     //                               Roles
     // ------------------------------------------------------------------------
-    bytes32 public constant PAUSER_ROLE      = keccak256("PAUSER_ROLE");
+    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
     bytes32 public constant FEE_MANAGER_ROLE = keccak256("FEE_MANAGER_ROLE");
     bytes32 public constant TGE_MANAGER_ROLE = keccak256("TGE_MANAGER_ROLE");
-    bytes32 public constant FEE_EXEMPT_ROLE  = keccak256("FEE_EXEMPT_ROLE");
+    bytes32 public constant FEE_EXEMPT_ROLE = keccak256("FEE_EXEMPT_ROLE");
 
     // ------------------------------------------------------------------------
     //                               Errors (gas‑saving)
@@ -156,10 +147,7 @@ contract TORC is
     // ------------------------------------------------------------------------
     //                             Initialization
     // ------------------------------------------------------------------------
-    constructor(address _weth, address _uniswapRouter)
-        ERC20("TORC", "TORC")
-        ERC20Permit("TORC")
-    {
+    constructor(address _weth, address _uniswapRouter) ERC20("TORC", "TORC") ERC20Permit("TORC") {
         if (_weth == address(0) || _uniswapRouter == address(0)) revert ZeroAddress();
 
         // Assign roles to deployer
@@ -210,17 +198,29 @@ contract TORC is
         emit FeeThresholdUpdated(old, weiAmount);
     }
 
-    function setFeeRecipients(address[] calldata recipients, uint256[] calldata bps) external onlyRole(FEE_MANAGER_ROLE) {
+    function setFeeRecipients(address[] calldata recipients, uint256[] calldata bps)
+        external
+        onlyRole(FEE_MANAGER_ROLE)
+    {
         uint256 len = recipients.length;
         if (len == 0 || len != bps.length) revert LengthMismatch();
 
         uint256 total;
         // cache to memory (cheaper) and basic checks
-        for (uint256 i; i < len; ) {
+        for (uint256 i; i < len;) {
             address r = recipients[i];
             if (r == address(0)) revert InvalidRecipient();
+            // duplicate check (O(n^2) but len is expected small)
+            for (uint256 j = i + 1; j < len;) {
+                if (recipients[j] == r) revert DuplicateRecipient();
+                unchecked {
+                    ++j;
+                }
+            }
             total += bps[i];
-            unchecked { ++i; }
+            unchecked {
+                ++i;
+            }
         }
         if (total != 10_000) revert BpsSumNot10000();
 
@@ -272,9 +272,11 @@ contract TORC is
         if (path[0] != address(this) || path[len - 1] != address(weth)) revert InvalidPath();
 
         delete defaultSwapPath;
-        for (uint256 i; i < len; ) {
+        for (uint256 i; i < len;) {
             defaultSwapPath.push(path[i]);
-            unchecked { ++i; }
+            unchecked {
+                ++i;
+            }
         }
         emit DefaultSwapPathUpdated(defaultSwapPath);
     }
@@ -282,13 +284,16 @@ contract TORC is
     // ------------------------------------------------------------------------
     //                        Token Generation Event (TGE)
     // ------------------------------------------------------------------------
-    function configureTGE(address[] calldata recipients, uint256[] calldata amounts) external onlyRole(TGE_MANAGER_ROLE) {
+    function configureTGE(address[] calldata recipients, uint256[] calldata amounts)
+        external
+        onlyRole(TGE_MANAGER_ROLE)
+    {
         if (tgeConfigured) revert AlreadyConfigured();
         uint256 len = recipients.length;
         if (len == 0 || len != amounts.length) revert LengthMismatch();
 
         uint256 totalAllocation;
-        for (uint256 i; i < len; ) {
+        for (uint256 i; i < len;) {
             address r = recipients[i];
             uint256 amt = amounts[i];
             if (r == address(0)) revert InvalidRecipient();
@@ -298,7 +303,9 @@ contract TORC is
             tgeAllocations[r] = amt;
             tgeRecipientList.push(r);
             totalAllocation += amt;
-            unchecked { ++i; }
+            unchecked {
+                ++i;
+            }
         }
         // Ensure total allocation does not exceed cap when converted to wei
         if (totalSupply() + (totalAllocation * (10 ** decimals())) > MAX_SUPPLY) revert ExceedsMaxSupply();
@@ -314,7 +321,7 @@ contract TORC is
 
         uint8 dec = decimals();
         uint256 len = tgeRecipientList.length;
-        for (uint256 i; i < len; ) {
+        for (uint256 i; i < len;) {
             address recipient = tgeRecipientList[i];
             uint256 amount = tgeAllocations[recipient];
             if (amount > 0) {
@@ -323,7 +330,9 @@ contract TORC is
                 _mint(recipient, mintAmount);
                 tgeAllocations[recipient] = 0;
             }
-            unchecked { ++i; }
+            unchecked {
+                ++i;
+            }
         }
         delete tgeRecipientList;
         emit TGEExecuted();
@@ -340,12 +349,11 @@ contract TORC is
      * @param path         Swap path; if empty, uses defaultSwapPath (must end with WETH)
      * @param deadline     Router deadline (e.g., block.timestamp + 300)
      */
-    function processFees(
-        uint256 amountIn,
-        uint256 amountOutMin,
-        address[] calldata path,
-        uint256 deadline
-    ) external nonReentrant onlyRole(FEE_MANAGER_ROLE) {
+    function processFees(uint256 amountIn, uint256 amountOutMin, address[] calldata path, uint256 deadline)
+        external
+        nonReentrant
+        onlyRole(FEE_MANAGER_ROLE)
+    {
         // Determine path to use
         address[] memory p = path;
         if (p.length == 0) {
@@ -408,14 +416,16 @@ contract TORC is
         // Accrue only a slice, proportionally (same as full loop but bounded)
         // Note: to keep math identical, we compute shares using the global BPS per index.
         uint256 totalAccounted;
-        for (uint256 i = start; i < end; ) {
+        for (uint256 i = start; i < end;) {
             uint256 share = (amount * feeRecipientBps[i]) / 10_000;
             if (share > 0) {
                 pendingEth[feeRecipients[i]] += share;
                 totalAccounted += share;
                 emit FeeAccrued(feeRecipients[i], share);
             }
-            unchecked { ++i; }
+            unchecked {
+                ++i;
+            }
         }
 
         if (totalAccounted > 0) {
@@ -430,7 +440,7 @@ contract TORC is
         uint256 amt = pendingEth[msg.sender];
         if (amt == 0) revert InvalidAmount();
         pendingEth[msg.sender] = 0;
-        (bool ok, ) = msg.sender.call{value: amt}("");
+        (bool ok,) = msg.sender.call{value: amt}("");
         if (!ok) revert ETHTransferFailed();
         emit FeeDistributed(msg.sender, amt);
     }
@@ -450,12 +460,12 @@ contract TORC is
 
         // push payouts guarded; if push fails -> pending
         inDistribution = true;
-        for (uint256 i; i < len; ) {
+        for (uint256 i; i < len;) {
             uint256 share = (distributionAmount * feeRecipientBps[i]) / 10_000;
             if (share > 0) {
                 address r = feeRecipients[i];
                 // try push
-                (bool success, ) = r.call{value: share}("");
+                (bool success,) = r.call{value: share}("");
                 if (success) {
                     emit FeeDistributed(r, share);
                 } else {
@@ -464,7 +474,9 @@ contract TORC is
                 }
                 totalAccounted += share;
             }
-            unchecked { ++i; }
+            unchecked {
+                ++i;
+            }
         }
         inDistribution = false;
 
@@ -523,8 +535,13 @@ contract TORC is
     // ------------------------------------------------------------------------
     //                     Pausing and Emergency Functions
     // ------------------------------------------------------------------------
-    function pause() external onlyRole(PAUSER_ROLE) { _pause(); }
-    function unpause() external onlyRole(PAUSER_ROLE) { _unpause(); }
+    function pause() external onlyRole(PAUSER_ROLE) {
+        _pause();
+    }
+
+    function unpause() external onlyRole(PAUSER_ROLE) {
+        _unpause();
+    }
 
     /**
      * @notice Emergency withdrawal of ERC20 mistakenly sent to this contract.
@@ -543,13 +560,9 @@ contract TORC is
      * @notice Emergency withdrawal of ETH mistakenly sent to this contract.
      * @dev Admin power by design. Use with care if you rely on pending/accumulated funds.
      */
-    function emergencyWithdrawETH(uint256 amount, address to)
-        external
-        onlyRole(DEFAULT_ADMIN_ROLE)
-        nonReentrant
-    {
+    function emergencyWithdrawETH(uint256 amount, address to) external onlyRole(DEFAULT_ADMIN_ROLE) nonReentrant {
         if (to == address(0)) revert ZeroAddress();
-        (bool success, ) = to.call{value: amount}("");
+        (bool success,) = to.call{value: amount}("");
         if (!success) revert ETHTransferFailed();
     }
 
