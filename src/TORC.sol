@@ -14,7 +14,6 @@ pragma solidity ^0.8.30;
  */
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
-import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -38,13 +37,12 @@ interface IUniswapV2Router02 {
     ) external returns (uint256[] memory amounts);
 }
 
-contract TORC is ERC20, ERC20Permit, Pausable, AccessControl, ReentrancyGuard {
+contract TORC is ERC20, ERC20Permit, AccessControl, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     // ------------------------------------------------------------------------
     //                               Roles
     // ------------------------------------------------------------------------
-    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
     bytes32 public constant FEE_MANAGER_ROLE = keccak256("FEE_MANAGER_ROLE");
     bytes32 public constant TGE_MANAGER_ROLE = keccak256("TGE_MANAGER_ROLE");
     bytes32 public constant FEE_EXEMPT_ROLE = keccak256("FEE_EXEMPT_ROLE");
@@ -56,7 +54,6 @@ contract TORC is ERC20, ERC20Permit, Pausable, AccessControl, ReentrancyGuard {
     error FeeTooHigh();
     error LengthMismatch();
     error BpsSumNot10000();
-    error TransferWhilePaused();
     error AlreadyConfigured();
     error NotConfigured();
     error AlreadyExecuted();
@@ -66,8 +63,6 @@ contract TORC is ERC20, ERC20Permit, Pausable, AccessControl, ReentrancyGuard {
     error InvalidAmount();
     error InvalidPath();
     error ETHTransferFailed();
-    error AlreadyPaused();
-    error NotPaused();
 
     // ------------------------------------------------------------------------
     //                          Token Supply Parameters
@@ -154,7 +149,6 @@ contract TORC is ERC20, ERC20Permit, Pausable, AccessControl, ReentrancyGuard {
 
         // Assign roles to deployer
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        _grantRole(PAUSER_ROLE, msg.sender);
         _grantRole(FEE_MANAGER_ROLE, msg.sender);
         _grantRole(TGE_MANAGER_ROLE, msg.sender);
         _grantRole(FEE_EXEMPT_ROLE, msg.sender);
@@ -316,7 +310,7 @@ contract TORC is ERC20, ERC20Permit, Pausable, AccessControl, ReentrancyGuard {
         emit TGEConfigured(recipients, amounts);
     }
 
-    function executeTGE() external onlyRole(TGE_MANAGER_ROLE) whenNotPaused {
+    function executeTGE() external onlyRole(TGE_MANAGER_ROLE) {
         if (!tgeConfigured) revert NotConfigured();
         if (tgeExecuted) revert AlreadyExecuted();
         tgeExecuted = true;
@@ -493,14 +487,8 @@ contract TORC is ERC20, ERC20Permit, Pausable, AccessControl, ReentrancyGuard {
     /**
      * @dev Applies swap fee only when transferring to or from the configured pair.
      * No external calls here: we only collect TORC fees to this contract.
-     * Transfers revert while paused (except mint/burn).
      */
     function _update(address from, address to, uint256 value) internal override {
-        // Disallow transfers while paused (allow minting/burning via address(0))
-        if (paused()) {
-            if (from != address(0) && to != address(0)) revert TransferWhilePaused();
-        }
-
         // Mint or burn: no fee logic
         if (from == address(0) || to == address(0)) {
             super._update(from, to, value);
@@ -535,17 +523,8 @@ contract TORC is ERC20, ERC20Permit, Pausable, AccessControl, ReentrancyGuard {
     }
 
     // ------------------------------------------------------------------------
-    //                     Pausing and Emergency Functions
+    //                     Emergency Functions
     // ------------------------------------------------------------------------
-    function pause() external onlyRole(PAUSER_ROLE) {
-        if (paused()) revert AlreadyPaused();
-        _pause();
-    }
-
-    function unpause() external onlyRole(PAUSER_ROLE) {
-        if (!paused()) revert NotPaused();
-        _unpause();
-    }
 
     /**
      * @notice Emergency withdrawal of ERC20 mistakenly sent to this contract.

@@ -9,7 +9,6 @@ import {ReentrantRecipient} from "./mocks/ReentrantRecipient.sol";
 import {AlwaysRevertRecipient} from "./mocks/AlwaysRevertRecipient.sol";
 import {TestableTORC} from "./mocks/TestableTORC.sol";
 import {DecimalsMutateTORC} from "./mocks/DecimalsMutateTORC.sol";
-import {PausableHarnessTORC} from "./mocks/PausableHarnessTORC.sol";
 
 contract TORCTest is Test {
     // Allow this test contract to receive ETH (needed for MockWETH.withdraw)
@@ -355,33 +354,6 @@ contract TORCTest is Test {
         assertEq(t.balanceOf(address(t)), 0, "no pair => no fee");
     }
 
-    // Pausing blocks transfers and executeTGE is also blocked when paused.
-    function test_Pause_BlocksTransfers_ExecuteTGEBlockedOnPause() public {
-        // Pause
-        token.pause();
-
-        // Regular transfer should revert with custom error TransferWhilePaused
-        vm.prank(ALICE);
-        vm.expectRevert(TORC.TransferWhilePaused.selector);
-        token.transfer(BOB, 1e18);
-
-        // On a fresh token, executeTGE should revert while paused
-        TORC t = new TORC(address(weth), address(router));
-        address[] memory rec = new address[](1);
-        uint256[] memory amt = new uint256[](1);
-        rec[0] = ALICE;
-        amt[0] = 1;
-        t.configureTGE(rec, amt);
-        t.pause();
-        vm.expectRevert(); // whenNotPaused modifier revert
-        t.executeTGE();
-
-        // Unpause resumes transfers
-        token.unpause();
-        vm.prank(ALICE);
-        token.transfer(BOB, 1e18);
-    }
-
     // Slippage protection reverts swaps; state stays sane; subsequent swap works.
     function test_ProcessFees_SlippageReverts_ThenSucceeds() public {
         uint256 amount = 100_000 * 1e18; // expect 3k TORC fee -> 3 ETH if swapped
@@ -623,7 +595,7 @@ contract TORCTest is Test {
         assertEq(weth.balanceOf(address(this)), adminBefore + 0.25 ether);
     }
 
-    // TGE guardrails: already configured/executed/over-cap/not-configured, plus paused execution.
+    // TGE guardrails: already configured/executed/over-cap/not-configured
     function test_TGE_Guardrails() public {
         // Fresh token for clean TGE tests
         TORC t = new TORC(address(weth), address(router));
@@ -650,12 +622,6 @@ contract TORCTest is Test {
         // Configure again -> AlreadyConfigured
         vm.expectRevert(TORC.AlreadyConfigured.selector);
         t.configureTGE(rec2, amt2);
-
-        // Pause blocks executeTGE
-        t.pause();
-        vm.expectRevert(); // whenNotPaused
-        t.executeTGE();
-        t.unpause();
 
         // Execute works once
         t.executeTGE();
@@ -1209,40 +1175,6 @@ contract TORCTest is Test {
         assertApproxEqAbs(distributed, acc, 1 wei);
     }
 
-    // Explicit coverage for pause() line (_pause() internal call) without additional logic
-    function test_Pause_StateFlip() public {
-        assertFalse(token.paused(), "should start unpaused");
-        token.pause();
-        assertTrue(token.paused(), "pause() did not set state");
-    }
-
-    // Explicit coverage for unpause() line (_unpause() internal call)
-    function test_Unpause_StateFlip() public {
-        token.pause();
-        assertTrue(token.paused(), "expected paused");
-        token.unpause();
-        assertFalse(token.paused(), "expected unpaused after unpause()");
-        // sanity: transfer works again
-        vm.prank(ALICE);
-        token.transfer(BOB, 1e18);
-    }
-
-    // Additional: calling pause() while already paused should revert (covers require branch in _pause())
-    function test_Pause_DoublePause_Reverts() public {
-        assertFalse(token.paused());
-        token.pause();
-        assertTrue(token.paused());
-        vm.expectRevert(TORC.AlreadyPaused.selector);
-        token.pause();
-    }
-
-    // Additional: calling unpause() while not paused should revert (covers require branch in _unpause())
-    function test_Unpause_WhileNotPaused_Reverts() public {
-        assertFalse(token.paused());
-        vm.expectRevert(TORC.NotPaused.selector); // custom error
-        token.unpause();
-    }
-
     // emergencyWithdrawETH: failed low-level send triggers ETHTransferFailed (line 566)
     function test_EmergencyWithdrawETH_FailedSend_Reverts() public {
         // Seed token contract with ETH
@@ -1252,19 +1184,5 @@ contract TORCTest is Test {
         AlwaysRevertRecipient bad = new AlwaysRevertRecipient(address(token));
         vm.expectRevert(TORC.ETHTransferFailed.selector);
         token.emergencyWithdrawETH(0.5 ether, address(bad));
-    }
-
-    // Harness: direct internal pause/unpause coverage including double invocations
-    function test_PausableHarness_InternalCalls() public {
-        PausableHarnessTORC h = new PausableHarnessTORC(address(weth), address(router));
-        assertFalse(h.paused());
-        h.callInternalPause();
-        assertTrue(h.paused());
-        vm.expectRevert();
-        h.callInternalPause();
-        h.callInternalUnpause();
-        assertFalse(h.paused());
-        vm.expectRevert();
-        h.callInternalUnpause();
     }
 }

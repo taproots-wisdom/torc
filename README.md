@@ -36,7 +36,6 @@ The contract is **non-upgradeable**, uses [OpenZeppelin Contracts v5.x](https://
 - **Role-based access control:**
   - `DEFAULT_ADMIN_ROLE`: Full control, emergency withdraws.
   - `FEE_MANAGER_ROLE`: Fee config, exemption lists, router/path updates.
-  - `PAUSER_ROLE`: Pause/unpause transfers.
   - `TGE_MANAGER_ROLE`: Configure and execute TGE.
   - `FEE_EXEMPT_ROLE`: Exempt address from paying swap fee.
 - **Pausable:** Blocks transfers.
@@ -107,7 +106,6 @@ These tests (in `test/TORC.t.sol`) cover:
 
 * Fee logic, exemptions, and pair absence.
 * TGE guardrails.
-* Pause/unpause behavior.
 * Fee distribution, thresholds, and chunked payout.
 * EIP-2612 `permit` flows, replay protection, nonce handling.
 * Admin functions, path updates, and emergency withdraws.
@@ -135,7 +133,7 @@ Covers:
 * Fee accrual and conversion via `processFees`, followed by distribution with a 45/45/10 recipient split.
 * Fee-exempt vs fee-paying swap paths (recipient pays on buys; sender pays on sells).
 * Using router “supporting fee-on-transfer” swap functions for sells to avoid UniswapV2: K reverts.
-* Threshold, partial distribution, and paused pair transfers.
+* Threshold and partial distribution pair transfers.
 * Router allowance flips and pair address idempotence.
 
 ---

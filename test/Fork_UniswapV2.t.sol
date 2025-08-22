@@ -221,21 +221,7 @@ contract Fork_UniswapV2_Test is Test {
         assertGt(TREASURY.balance, before);
     }
 
-    function testFork_Paused_BlocksPairTransfers() public {
-        _exempt(ALICE);
-        _addLP(ALICE, 20 ether, 600_000 * 1e18, ALICE);
-        vm.prank(ALICE);
-        token.transfer(BOB, 100_000 * 1e18);
-        _unexempt(ALICE);
-
-        token.pause();
-        vm.startPrank(BOB);
-        token.approve(UNIV2_ROUTER, type(uint256).max);
-        vm.expectRevert();
-        router.swapExactTokensForETH(10_000 * 1e18, 0, _path(address(token), MAINNET_WETH), BOB, block.timestamp + 300);
-        vm.stopPrank();
-        token.unpause();
-    }
+    // Pausable feature removed: fork test for pause removed
 
     function testFork_SetRouter_AllowanceFlips() public {
         assertEq(token.allowance(address(token), UNIV2_ROUTER), type(uint256).max);
