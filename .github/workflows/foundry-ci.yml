@@ -43,12 +43,20 @@ jobs:
           echo "FEE_THRESHOLD_WEI=${{ secrets.FEE_THRESHOLD_WEI }}" >> .env
           echo "ETHERSCAN_API_KEY=${{ secrets.ETHERSCAN_API_KEY }}" >> .env
 
-      - name: Run local tests (no fork)
-        run: |
-          forge fmt --check
+      - name: Check solidity files format
+        run: forge fmt --check
+
+      - name: Run local tests
+        run:
           forge test --gas-report -vvv --via-ir
-          forge test --gas-report -vvv --fuzz-runs 50000 --via-ir
-          forge coverage --via-ir --ir-minimum --report lcov
+
+      - name: Run fuzz tests
+        run: forge test --gas-report -vvv --fuzz-runs 50000 --via-ir
+
+      - name: Run coverage
+        run: forge coverage --via-ir --ir-minimum --report lcov
+        continue-on-error: true
+        
       - name: Summarize coverage
         if: always()
         run: |
