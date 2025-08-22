@@ -9,6 +9,7 @@ import {ReentrantRecipient} from "./mocks/ReentrantRecipient.sol";
 import {AlwaysRevertRecipient} from "./mocks/AlwaysRevertRecipient.sol";
 import {TestableTORC} from "./mocks/TestableTORC.sol";
 import {DecimalsMutateTORC} from "./mocks/DecimalsMutateTORC.sol";
+import {PausableHarnessTORC} from "./mocks/PausableHarnessTORC.sol";
 
 contract TORCTest is Test {
     // Allow this test contract to receive ETH (needed for MockWETH.withdraw)
@@ -1251,5 +1252,19 @@ contract TORCTest is Test {
         AlwaysRevertRecipient bad = new AlwaysRevertRecipient(address(token));
         vm.expectRevert(TORC.ETHTransferFailed.selector);
         token.emergencyWithdrawETH(0.5 ether, address(bad));
+    }
+
+    // Harness: direct internal pause/unpause coverage including double invocations
+    function test_PausableHarness_InternalCalls() public {
+        PausableHarnessTORC h = new PausableHarnessTORC(address(weth), address(router));
+        assertFalse(h.paused());
+        h.callInternalPause();
+        assertTrue(h.paused());
+        vm.expectRevert();
+        h.callInternalPause();
+        h.callInternalUnpause();
+        assertFalse(h.paused());
+        vm.expectRevert();
+        h.callInternalUnpause();
     }
 }
