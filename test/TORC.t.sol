@@ -870,4 +870,106 @@ contract TORCTest is Test {
         vm.expectRevert();
         token.permit(owner, BOB, 75 ether, deadline, v0, r0, s0);
     }
+
+    // --- Additional coverage tests for previously uncovered lines ---
+
+    // Constructor should revert if either WETH or router is zero address.
+    function test_Constructor_ZeroAddresses_Revert() public {
+        vm.expectRevert(TORC.ZeroAddress.selector);
+        new TORC(address(0), address(router));
+        vm.expectRevert(TORC.ZeroAddress.selector);
+        new TORC(address(weth), address(0));
+    }
+
+    // Explicit non-zero amountIn smaller than full balance path in processFees (no auto adjustment).
+    function test_ProcessFees_PartialAmountIn() public {
+        // generate fee TORC (3k)
+        _makeFees(100_000 * 1e18);
+        uint256 torcBal = token.balanceOf(address(token)); // 3000e18
+        assertEq(torcBal, 3_000 * 1e18);
+        // swap only half (1500e18)
+        uint256 swapAmount = 1_500 * 1e18;
+        token.processFees(swapAmount, 0, new address[](0), block.timestamp + 300);
+        // leftover TORC should remain
+        assertEq(token.balanceOf(address(token)), torcBal - swapAmount, "leftover TORC not retained");
+        // accumulated ETH ~1.5 ETH (rateDiv=1000)
+        assertApproxEqAbs(token.accumulatedFeeWei(), 1.5 ether, 1 wei);
+    }
+
+    // Setting swap fee to zero disables fee collection on pair transfers.
+    function test_FeeDisabled_NoFeeTaken() public {
+        token.setSwapFee(0);
+        uint256 amount = 10_000 * 1e18;
+        vm.prank(ALICE);
+        token.transfer(PAIR, amount);
+        assertEq(token.balanceOf(address(token)), 0, "fee should be zero when disabled");
+    }
+
+    // distributeFees with ETH and zero recipients triggers early return in _accrueDistribution.
+    function test_DistributeFees_NoRecipients_EarlyReturn() public {
+        // generate fees & swap to create accumulatedFeeWei > 0
+        _makeFees(50_000 * 1e18); // 1500 TORC
+        token.processFees(0, 0, new address[](0), block.timestamp + 300); // ~1.5 ETH
+        uint256 accBefore = token.accumulatedFeeWei();
+        // no recipients set -> distributeFees should not change state
+        token.distributeFees(0);
+        assertEq(token.accumulatedFeeWei(), accBefore, "acc should remain when no recipients");
+    }
+
+    // accumulatedFeeWei > actual ETH balance: only available ETH is distributed.
+    function test_DistributeFees_PartialETHAvailable() public {
+        // set recipients
+        address[] memory recs = new address[](2);
+        uint256[] memory bps = new uint256[](2);
+        recs[0] = BOB; bps[0] = 6000;
+        recs[1] = CAROL; bps[1] = 4000;
+        token.setFeeRecipients(recs, bps);
+        // produce ~3 ETH
+        _makeFees(100_000 * 1e18);
+        token.processFees(0, 0, new address[](0), block.timestamp + 300);
+        uint256 accBefore = token.accumulatedFeeWei();
+        assertApproxEqAbs(accBefore, 3 ether, 1 wei);
+        // withdraw 1 ETH (admin) -> leaves ETH < accumulatedFeeWei
+        token.emergencyWithdrawETH(1 ether, address(this));
+        uint256 contractEth = address(token).balance;
+        assertLt(contractEth, accBefore);
+        // distribute: should only distribute contractEth
+        uint256 bobBefore = BOB.balance;
+        uint256 carolBefore = CAROL.balance;
+        token.distributeFees(0);
+        // distributed amount = contractEth; BOB share 60%, CAROL 40%
+        assertEq(BOB.balance - bobBefore, (contractEth * 6000) / 10000);
+        assertEq(CAROL.balance - carolBefore, (contractEth * 4000) / 10000);
+        // accumulated decreased by distributed amount but still > 0 (undistributed remainder)
+        assertEq(token.accumulatedFeeWei(), accBefore - contractEth);
+    }
+
+    // accumulatedFeeWei >0 but ETH balance drained to 0 -> early return on distribution (distributionAmount==0).
+    function test_DistributeFees_NoETHButAccumulated() public {
+        address[] memory recs = new address[](2);
+        uint256[] memory bps = new uint256[](2);
+        recs[0] = BOB; bps[0] = 5000;
+        recs[1] = CAROL; bps[1] = 5000;
+        token.setFeeRecipients(recs, bps);
+        _makeFees(50_000 * 1e18); // 1500 TORC
+        token.processFees(0, 0, new address[](0), block.timestamp + 300); // ~1.5 ETH
+        uint256 accBefore = token.accumulatedFeeWei();
+        // drain all ETH
+        token.emergencyWithdrawETH(address(token).balance, address(this));
+        assertEq(address(token).balance, 0);
+        // distribute -> no change
+        token.distributeFees(0);
+        assertEq(token.accumulatedFeeWei(), accBefore, "acc unchanged when no ETH");
+    }
+
+    // Emergency withdraw ETH/ERC20 zero-address 'to' reverts.
+    function test_EmergencyWithdrawETH_ZeroTo_Revert() public {
+        vm.expectRevert(TORC.ZeroAddress.selector);
+        token.emergencyWithdrawETH(0, address(0));
+    }
+
+    function test_EmergencyWithdrawERC20_ZeroTo_Revert() public {
+        vm.expectRevert(TORC.ZeroAddress.selector);
+        token.emergencyWithdrawERC20(address(weth), 0, address(0));
+    }
 }
