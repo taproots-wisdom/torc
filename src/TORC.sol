@@ -66,6 +66,8 @@ contract TORC is ERC20, ERC20Permit, Pausable, AccessControl, ReentrancyGuard {
     error InvalidAmount();
     error InvalidPath();
     error ETHTransferFailed();
+    error AlreadyPaused();
+    error NotPaused();
 
     // ------------------------------------------------------------------------
     //                          Token Supply Parameters
@@ -536,10 +538,12 @@ contract TORC is ERC20, ERC20Permit, Pausable, AccessControl, ReentrancyGuard {
     //                     Pausing and Emergency Functions
     // ------------------------------------------------------------------------
     function pause() external onlyRole(PAUSER_ROLE) {
+        if (paused()) revert AlreadyPaused();
         _pause();
     }
 
     function unpause() external onlyRole(PAUSER_ROLE) {
+        if (!paused()) revert NotPaused();
         _unpause();
     }
 

@@ -1232,14 +1232,14 @@ contract TORCTest is Test {
         assertFalse(token.paused());
         token.pause();
         assertTrue(token.paused());
-        vm.expectRevert(); // Pausable: paused already
+        vm.expectRevert(TORC.AlreadyPaused.selector);
         token.pause();
     }
 
     // Additional: calling unpause() while not paused should revert (covers require branch in _unpause())
     function test_Unpause_WhileNotPaused_Reverts() public {
         assertFalse(token.paused());
-        vm.expectRevert(); // Pausable: not paused
+        vm.expectRevert(TORC.NotPaused.selector); // custom error
         token.unpause();
     }
 
