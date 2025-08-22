@@ -82,3 +82,13 @@ jobs:
             coverage-badge.json
           if-no-files-found: warn
           retention-days: 7
+
+      - name: Upload coverage to Codecov
+        if: success()
+        uses: codecov/codecov-action@v5
+        with:
+          files: lcov.info
+          flags: solidity
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }} # only required for private repos
+          verbose: true
