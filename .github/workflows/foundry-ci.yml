@@ -32,7 +32,6 @@ jobs:
           forge install  foundry-rs/forge-std@v1.10.0
       - name: 'Create env file'
         run: |
-          echo "testing secrets: ${{ toJson(secrets) }}"
           echo "MAINNET_RPC_URL=${{ secrets.MAINNET_RPC_URL }}" >> .env
           echo "TOKEN_OWNER_PK=${{ secrets.TOKEN_OWNER_PK }}" >> .env
           echo "WETH=${{ secrets.WETH }}" >> .env
