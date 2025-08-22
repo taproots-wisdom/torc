@@ -1,0 +1,38 @@
+version: 2
+
+# Dependabot configuration for automatic dependency update PRs.
+# Note: Foundry (Solidity) dependencies vendored via `lib/` (e.g. openzeppelin-contracts, forge-std)
+# are not an ecosystem Dependabot can update directly. Update those manually with:
+#   forge update
+# or by bumping the git submodule / vendored commit.
+# This config focuses on GitHub Actions security/runtime updates.
+
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: daily
+      time: "04:00"   # UTC
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore(actions)"
+      include: scope
+    rebase-strategy: auto
+    reviewers: []
+    assignees: []
+    # Ignore noisy auto-bumps if desired; example shown (commented out):
+    # ignore:
+    #   - dependency-name: "actions/cache"
+    #     versions: [">=4.0.0"]
+
+  # (Optional) If you later add a frontend package.json you can enable npm updates:
+  # - package-ecosystem: npm
+  #   directory: "/frontend"
+  #   schedule:
+  #     interval: daily
+  #   open-pull-requests-limit: 5
+  #   labels: ["dependencies"]
+
+# Security updates can also be managed automatically (enabled by default for GH Actions).
