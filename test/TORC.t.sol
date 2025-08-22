@@ -1062,7 +1062,8 @@ contract TORCTest is Test {
         address[] memory recs = new address[](1);
         uint256[] memory amts = new uint256[](2);
         recs[0] = ALICE;
-        amts[0] = 1; amts[1] = 2;
+        amts[0] = 1;
+        amts[1] = 2;
         vm.expectRevert(TORC.LengthMismatch.selector);
         t.configureTGE(recs, amts);
     }
@@ -1110,14 +1111,17 @@ contract TORCTest is Test {
         AlwaysRevertRecipient bad = new AlwaysRevertRecipient(address(t));
         address[] memory recs = new address[](2);
         uint256[] memory bps = new uint256[](2);
-        recs[0] = address(bad); bps[0] = 7000;
-        recs[1] = BOB;         bps[1] = 3000;
+        recs[0] = address(bad);
+        bps[0] = 7000;
+        recs[1] = BOB;
+        bps[1] = 3000;
         t.setFeeRecipients(recs, bps);
 
         // Configure & execute TGE so ALICE has tokens to generate fees
         address[] memory trec = new address[](1);
         uint256[] memory tamt = new uint256[](1);
-        trec[0] = ALICE; tamt[0] = 100_000; // whole tokens
+        trec[0] = ALICE;
+        tamt[0] = 100_000; // whole tokens
         t.configureTGE(trec, tamt);
         t.executeTGE();
         // Set pair (needed for fees) and fund ALICE ETH
@@ -1152,14 +1156,17 @@ contract TORCTest is Test {
         // Recipients
         address[] memory recs = new address[](2);
         uint256[] memory bps = new uint256[](2);
-        recs[0] = BOB; bps[0] = 6000;
-        recs[1] = CAROL; bps[1] = 4000;
+        recs[0] = BOB;
+        bps[0] = 6000;
+        recs[1] = CAROL;
+        bps[1] = 4000;
         t.setFeeRecipients(recs, bps);
 
         // TGE allocate to ALICE
         address[] memory trec = new address[](1);
         uint256[] memory tamt = new uint256[](1);
-        trec[0] = ALICE; tamt[0] = 100_000;
+        trec[0] = ALICE;
+        tamt[0] = 100_000;
         t.configureTGE(trec, tamt);
         t.executeTGE();
         t.setPairAddress(PAIR);
@@ -1167,7 +1174,8 @@ contract TORCTest is Test {
         vm.deal(address(router), 50 ether);
 
         // Generate fee tokens (3% of 50k)
-        vm.prank(ALICE); t.transfer(PAIR, 50_000 * 1e18); // fee 1500e18
+        vm.prank(ALICE);
+        t.transfer(PAIR, 50_000 * 1e18); // fee 1500e18
         // Swap all fee TORC -> ETH
         t.processFees(0, 0, new address[](0), block.timestamp + 300);
         uint256 acc = t.accumulatedFeeWei();
