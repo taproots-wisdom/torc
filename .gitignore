@@ -41,3 +41,4 @@ dist/
 build/
 coverage-badge.json
 lcov.info
+frontend/server.log
