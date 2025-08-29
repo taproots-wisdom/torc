@@ -2,23 +2,395 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Swap ETH for TORC</title>
+    <!-- Preload Google Fonts for smooth typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Ethers.js library for interacting with Ethereum wallets -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.8.0/ethers.umd.min.js" type="application/javascript"></script>
+    <style>
+        /*
+          Colour palette and typographic variables. Defining these at the top makes
+          it trivial to experiment with different schemes later on. The dark
+          background contrasts sharply with the orange highlight used throughout
+          the site and helps the card pop off the page.
+        */
+        :root {
+            --primary-color: #ff7a27;
+            --secondary-color: #0f1a2a;
+            --overlay-colour: rgba(10, 9, 33, 0.65);
+            --text-light: #ffffff;
+            --text-muted: #a9acc9;
+            --accent-blue: #3c82ff;
+            --button-blue: #2762f3;
+            --button-blue-hover: #3c78f8;
+        }
+
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            font-family: 'Montserrat', sans-serif;
+            color: var(--text-light);
+        }
+
+        /*
+          The swirling nebula background generated with the image tool. A dark
+          overlay is layered on top to improve contrast for text and cards.
+        */
+        body {
+            background: url('396baa0b-e828-47a1-8240-6a3cbd155fab.png') no-repeat center/cover fixed;
+            position: relative;
+        }
+        body::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--overlay-colour);
+            z-index: -1;
+        }
+
+        /* Navigation bar styling */
+        .navbar {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 2rem;
+            box-sizing: border-box;
+            position: relative;
+            z-index: 5;
+        }
+        .logo {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--accent-blue);
+            text-transform: lowercase;
+        }
+        .nav-links {
+            list-style: none;
+            display: flex;
+            gap: 1.5rem;
+            margin: 0;
+            padding: 0;
+        }
+        .nav-links a {
+            text-decoration: none;
+            color: var(--text-light);
+            font-weight: 500;
+            transition: color 0.3s ease;
+        }
+        .nav-links a:hover {
+            color: var(--primary-color);
+        }
+        .nav-actions {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .btn-buy {
+            background: var(--primary-color);
+            border: none;
+            padding: 0.6rem 1.3rem;
+            border-radius: 8px;
+            color: #fff;
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity 0.3s ease;
+        }
+        .btn-buy:hover {
+            opacity: 0.85;
+        }
+
+        /* Hero section layout */
+        .hero {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            align-items: flex-start;
+            padding: 5rem 8% 3rem;
+            min-height: 90vh;
+            box-sizing: border-box;
+        }
+        .hero-text {
+            flex: 1 1 45%;
+            max-width: 50%;
+            padding-right: 2rem;
+        }
+        .hero-text h1 {
+            font-size: 2.6rem;
+            line-height: 1.35;
+            margin: 0;
+        }
+        .hero-text h1 em {
+            font-style: italic;
+            color: var(--primary-color);
+        }
+        .hero-text p {
+            font-size: 1rem;
+            margin-top: 1.2rem;
+            color: var(--text-muted);
+        }
+
+        /* Swap card styling */
+        .swap-card {
+            width: 380px;
+            background: var(--secondary-color);
+            padding: 1.5rem;
+            border-radius: 20px;
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+        }
+        .card-tagline {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-bottom: 0.4rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .tabs {
+            display: flex;
+            margin-bottom: 1.1rem;
+        }
+        .tab {
+            flex: 1;
+            text-align: center;
+            padding: 0.6rem 0;
+            cursor: pointer;
+            border-radius: 8px;
+            background: #182448;
+            color: var(--text-light);
+            font-weight: 600;
+            user-select: none;
+        }
+        .tab.active {
+            background: var(--primary-color);
+            color: #fff;
+        }
+        .form-row {
+            margin-bottom: 1rem;
+        }
+        .form-row label {
+            display: block;
+            font-size: 0.8rem;
+            margin-bottom: 0.4rem;
+            color: var(--text-muted);
+        }
+        .form-row input {
+            width: 100%;
+            padding: 0.6rem;
+            border-radius: 8px;
+            border: none;
+            background: #131b35;
+            color: var(--text-light);
+            font-size: 1rem;
+        }
+        .button-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .button-row button {
+            flex: 1;
+            padding: 0.6rem 0;
+            border: none;
+            background: #131b35;
+            color: var(--text-light);
+            border-radius: 8px;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+        .button-row button:disabled {
+            opacity: 0.5;
+            cursor: default;
+        }
+        #connectWallet, #getQuote, #buyTorc {
+            width: 100%;
+            padding: 0.7rem 0;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            margin-bottom: 0.5rem;
+        }
+        #connectWallet {
+            background: var(--button-blue);
+            color: #fff;
+        }
+        #connectWallet:hover {
+            background: var(--button-blue-hover);
+        }
+        #getQuote {
+            background: #252c4c;
+            color: var(--text-light);
+        }
+        #buyTorc {
+            background: var(--primary-color);
+            color: #fff;
+        }
+        /* Dual input layout for ETH and TORC */
+        .dual-inputs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 0.6rem;
+        }
+        .input-field {
+            flex: 1 1 50%;
+            min-width: 0;
+            max-width: 50%;
+        }
+        .input-with-icon {
+            position: relative;
+        }
+        .input-with-icon input {
+            width: 100%;
+            padding: 0.6rem;
+            border-radius: 8px;
+            border: none;
+            background: #131b35;
+            color: var(--text-light);
+            font-size: 1rem;
+            padding-right: 2.2rem;
+            box-sizing: border-box;
+            min-width: 0;
+        }
+        .input-with-icon .icon {
+            position: absolute;
+            right: 0.8rem;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 1rem;
+            pointer-events: none;
+        }
+        .input-with-icon .icon.eth {
+            color: #4ea8ff;
+        }
+        .input-with-icon .icon.torc {
+            color: #e4b14f;
+        }
+        .or-text {
+            text-align: center;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-bottom: 0.7rem;
+        }
+        /* Status and info outputs */
+        #quoteDetails, #transactionStatus, #swapDetails, #walletInfo {
+            font-size: 0.8rem;
+            margin-top: 0.5rem;
+            color: var(--text-muted);
+            word-wrap: break-word;
+        }
+        .quote-details {
+            font-size: 0.8rem;
+            margin-bottom: 0.5rem;
+            color: var(--text-muted);
+            word-wrap: break-word;
+        }
+        .whitepaper-btn {
+            display: inline-block;
+            margin-top: 1.2rem;
+            background: var(--primary-color);
+            color: #fff;
+            padding: 0.6rem 1.2rem;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            text-decoration: none;
+            font-weight: 600;
+            transition: opacity 0.3s ease;
+        }
+        .whitepaper-btn:hover {
+            opacity: 0.85;
+        }
+
+        /* Responsive tweaks */
+        @media (max-width: 900px) {
+            .hero {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .hero-text {
+                max-width: 100%;
+                padding-right: 0;
+                margin-bottom: 2.5rem;
+            }
+            .swap-card {
+                width: 100%;
+            }
+        }
+    </style>
 </head>
 <body>
-    <button id="connectWallet">Connect Wallet</button><br/>
-    <label for="ethAmount">Enter ETH amount:</label>
-    <input id="ethAmount" type="text" placeholder="0.0001" onfocus="if(this.value=='') {this.value='';}" onblur="if(this.value=='') {this.value='';}">
-    <button id="set50" onclick="setEthAmount(50)" disabled>Set $50</button>
-    <button id="set100" onclick="setEthAmount(100)" disabled>Set $100</button>
-    <button id="set500" onclick="setEthAmount(500)" disabled>Set $500</button>
-    <button id="getQuote" disabled>Get Quote</button>
-    <button id="buyTorc" disabled>Buy TORC</button>
-    <div id="walletInfo"></div>
-    <div id="transactionStatus"></div>
-    <div id="quoteDetails"></div>
-    <div id="swapDetails"></div>
+    <nav class="navbar">
+        <div class="logo">torc</div>
+        <ul class="nav-links">
+            <li><a href="#">WHAT’S TORC?</a></li>
+            <li><a href="#">ANCIENT QUEST</a></li>
+            <li><a href="#">WHITE PAPER</a></li>
+            <li><a href="#">FAQS</a></li>
+        </ul>
+        <div class="nav-actions">
+            <button class="btn-buy">Buy Now</button>
+        </div>
+    </nav>
+
+    <section class="hero">
+        <div class="hero-text">
+            <h1>Being human is a big job.<br>Being <em>well</em> is an epic quest.</h1>
+            <p>A trailblazing twist on an ancient hunt</p>
+        </div>
+        <div class="swap-card">
+            <div class="card-tagline">Trade on timeless wisdom</div>
+            <div class="tabs">
+                <div class="tab active">Buy TORC</div>
+                <div class="tab">Info</div>
+            </div>
+            <!--
+              Two inputs: one for ETH and one for TORC. Each input includes a small
+              icon aligned to the right to hint at the currency. When the user
+              enters a value in one field, the other field updates instantly via
+              the JavaScript logic appended below. This replicates the look of
+              the reference design where two boxes sit side-by-side.
+            -->
+            <div class="dual-inputs">
+                <div class="input-field">
+                    <label for="ethAmount">ETH you pay</label>
+                    <div class="input-with-icon">
+                        <input id="ethAmount" type="text" placeholder="0.0001" onfocus="if(this.value==''){this.value='';}" onblur="if(this.value==''){this.value='';}">
+                        <span class="icon eth">&#x039E;</span>
+                    </div>
+                </div>
+                <div class="input-field">
+                    <label for="torcAmount">$ TORC you receive</label>
+                    <div class="input-with-icon">
+                        <input id="torcAmount" type="text" placeholder="0" onfocus="if(this.value==''){this.value='';}" onblur="if(this.value==''){this.value='';}">
+                        <span class="icon torc">&#x25CF;</span>
+                    </div>
+                </div>
+            </div>
+            <!-- Display live quote just below the input boxes -->
+            <div id="quoteDetails" class="quote-details"></div>
+            <div class="or-text">or choose a dollar amount</div>
+            <div class="button-row">
+                <button id="set50" onclick="setEthAmount(50)" disabled>$50</button>
+                <button id="set100" onclick="setEthAmount(100)" disabled>$100</button>
+                <button id="set500" onclick="setEthAmount(500)" disabled>$500</button>
+            </div>
+            <button id="connectWallet">Connect Wallet</button>
+            <button id="getQuote" disabled>Get Quote</button>
+            <button id="buyTorc" disabled>Buy TORC</button>
+            <div id="walletInfo"></div>
+            <div id="transactionStatus"></div>
+            <div id="swapDetails"></div>
+            <a class="whitepaper-btn" href="#">WHITE PAPER</a>
+        </div>
+    </section>
 
     <script>
         let signer;
@@ -109,9 +481,26 @@
             const path = [await routerContract.WETH(), tokenAddress];
             const quote = await routerContract.getAmountsOut(amountETH, path);
             const torcOut = ethers.utils.formatUnits(quote[1], 18);
+            const torcOutTruncated = parseFloat(torcOut).toFixed(2); // Show with 2 decimal places
 
             const ethValueUSD = (parseFloat(amountInput) * ethPriceUSD).toFixed(2);
-            document.getElementById('quoteDetails').innerHTML = `Quote: ${amountInput} ETH will get approximately ${torcOut} TORC. (1 ETH = $${ethPriceUSD}, Total: $${ethValueUSD} USD)`;
+            document.getElementById('quoteDetails').innerHTML = `Quote: ${amountInput} ETH will get approximately ${torcOutTruncated} TORC. (1 ETH = $${ethPriceUSD}, Total: $${ethValueUSD} USD)`;
+            
+            // Also update the TORC amount field if it exists
+            if (document.getElementById('torcAmount')) {
+                document.getElementById('torcAmount').value = torcOutTruncated;
+            }
+        });
+
+        // Add event listener to show TORC with 2 decimal places on input
+        document.getElementById('torcAmount').addEventListener('input', function() {
+            const value = this.value;
+            if (value && !isNaN(value)) {
+                const truncated = parseFloat(value).toFixed(2);
+                if (truncated !== value) {
+                    this.value = truncated;
+                }
+            }
         });
 
         document.getElementById('buyTorc').addEventListener('click', async () => {
@@ -137,7 +526,8 @@
                 pairContract.once("Swap", (sender, amount0In, amount1In, amount0Out, amount1Out, to, event) => {
                     const ethIn = ethers.utils.formatUnits(amount0In, 18);
                     const torcOut = ethers.utils.formatUnits(amount1Out, 18);
-                    document.getElementById('swapDetails').innerHTML = `Swap Details: ${ethIn} ETH swapped for ${torcOut} TORC`;
+                    const torcOutTruncated = parseFloat(torcOut).toFixed(2); // Show with 2 decimal places
+                    document.getElementById('swapDetails').innerHTML = `Swap Details: ${ethIn} ETH swapped for ${torcOutTruncated} TORC`;
                 });
 
                 await tx.wait();

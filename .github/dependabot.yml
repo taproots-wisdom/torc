@@ -20,8 +20,6 @@ updates:
       prefix: "chore(actions)"
       include: scope
     rebase-strategy: auto
-    reviewers: []
-    assignees: []
     # Ignore noisy auto-bumps if desired; example shown (commented out):
     # ignore:
     #   - dependency-name: "actions/cache"
