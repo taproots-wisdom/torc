@@ -481,7 +481,7 @@
             const path = [await routerContract.WETH(), tokenAddress];
             const quote = await routerContract.getAmountsOut(amountETH, path);
             const torcOut = ethers.utils.formatUnits(quote[1], 18);
-            const torcOutTruncated = parseFloat(torcOut).toFixed(6); // Truncate to 6 decimal places
+            const torcOutTruncated = Math.floor(parseFloat(torcOut)).toString(); // Show as whole numbers
 
             const ethValueUSD = (parseFloat(amountInput) * ethPriceUSD).toFixed(2);
             document.getElementById('quoteDetails').innerHTML = `Quote: ${amountInput} ETH will get approximately ${torcOutTruncated} TORC. (1 ETH = $${ethPriceUSD}, Total: $${ethValueUSD} USD)`;
@@ -492,11 +492,11 @@
             }
         });
 
-        // Add event listener to truncate TORC decimals on input
+        // Add event listener to show TORC as whole numbers on input
         document.getElementById('torcAmount').addEventListener('input', function() {
             const value = this.value;
             if (value && !isNaN(value)) {
-                const truncated = parseFloat(value).toFixed(6);
+                const truncated = Math.floor(parseFloat(value)).toString();
                 if (truncated !== value) {
                     this.value = truncated;
                 }
@@ -526,7 +526,7 @@
                 pairContract.once("Swap", (sender, amount0In, amount1In, amount0Out, amount1Out, to, event) => {
                     const ethIn = ethers.utils.formatUnits(amount0In, 18);
                     const torcOut = ethers.utils.formatUnits(amount1Out, 18);
-                    const torcOutTruncated = parseFloat(torcOut).toFixed(6); // Truncate to 6 decimal places
+                    const torcOutTruncated = Math.floor(parseFloat(torcOut)).toString(); // Show as whole numbers
                     document.getElementById('swapDetails').innerHTML = `Swap Details: ${ethIn} ETH swapped for ${torcOutTruncated} TORC`;
                 });
 
