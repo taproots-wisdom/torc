@@ -390,39 +390,22 @@
     </section>
 
     <script>
-        // Preserve the original JavaScript functionality. The markup above retains
-        // the same element IDs so existing logic continues to work unchanged.
-    let signer;
-    let routerContract;
-    let pairContract;
-    let ethPriceUSD;
-    let cachedWeth; // cache resolved WETH address
-    let routerHealthy = false; // code exists at routerAddress
+        let signer;
+        let routerContract;
+        let pairContract;
+        let ethPriceUSD;
 
-        // Flag to prevent infinite loops when synchronising the dual inputs.
-        let isUpdating = false;
-
-    // Router address (update per network: mainnet UniswapV2 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D)
-    const routerAddress = '0xC532a74256D3Db42D0Bf7a0400fEFDbad7694008';
-    // Fallback WETH (mainnet) – replace if using another chain
-    const FALLBACK_WETH = '0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9';
+        const routerAddress = '0xC532a74256D3Db42D0Bf7a0400fEFDbad7694008';
         const pairAddress = '0x157f2d14104A5cBFf12d47311D86ED53784428c2';
         const tokenAddress = '0x4d83764fbab749d1bd1d1fcb7ead7a6c52a169f9';
         const routerABI = [
             "function swapExactETHForTokens(uint amountOutMin, address[] calldata path, address to, uint deadline) external payable returns (uint[] memory amounts)",
             "function WETH() external pure returns (address)",
-            "function getAmountsOut(uint amountIn, address[] memory path) public view returns (uint[] memory amounts)",
-            "function getAmountsIn(uint amountOut, address[] memory path) public view returns (uint[] memory amounts)"
+            "function getAmountsOut(uint amountIn, address[] memory path) public view returns (uint[] memory amounts)"
         ];
         const pairABI = [
             "event Swap(address indexed sender, uint amount0In, uint amount1In, uint amount0Out, uint amount1Out, address indexed to)"
         ];
-        // Extend pair ABI for reserve-based fallback quoting
-        pairABI.push(
-            "function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast)",
-            "function token0() external view returns (address)",
-            "function token1() external view returns (address)"
-        );
 
         // EIP-1193 provider detection with multi-injection support (MetaMask preferred)
         function getInjectedProvider() {
@@ -446,18 +429,6 @@
 
             routerContract = new ethers.Contract(routerAddress, routerABI, signer);
             pairContract = new ethers.Contract(pairAddress, pairABI, signer);
-
-            // Check router code exists to avoid CALL_EXCEPTION on WETH()
-            try {
-                const code = await ethersProvider.getCode(routerAddress);
-                routerHealthy = code && code !== '0x';
-                if (!routerHealthy) {
-                    console.warn('No contract code at routerAddress; using fallback WETH and disabling quotes.');
-                    document.getElementById('quoteDetails').innerHTML = 'Router unavailable on this network.';
-                }
-            } catch (e) {
-                console.warn('Router code check failed', e);
-            }
             document.getElementById('buyTorc').disabled = false;
             document.getElementById('getQuote').disabled = false;
             document.getElementById('set50').disabled = false;
@@ -495,175 +466,25 @@
         function setEthAmount(usdAmount) {
             const ethAmount = (usdAmount / ethPriceUSD).toFixed(4);
             document.getElementById('ethAmount').value = ethAmount;
-            // Trigger quote update whenever preset amounts are used.
-            // Only attempt to compute a quote when contracts are loaded.
-            if (routerContract) {
-                updateFromEth();
-            }
-        }
-
-        /**
-         * Update the TORC amount based on the ETH entered by the user.
-         * Utilises getAmountsOut on the router to fetch a live quote for
-         * ETH→TORC swaps. Writes the result into the TORC input and the
-         * quoteDetails area.
-         */
-        async function getWethAddress() {
-            if (cachedWeth) return cachedWeth;
-            if (!routerHealthy) {
-                cachedWeth = FALLBACK_WETH;
-                return cachedWeth;
-            }
-            try {
-                cachedWeth = await routerContract.WETH();
-            } catch (e) {
-                console.warn('WETH() call reverted, falling back', e);
-                cachedWeth = FALLBACK_WETH;
-            }
-            return cachedWeth;
-        }
-
-        async function updateFromEth() {
-            if (isUpdating) return;
-            const ethInput = document.getElementById('ethAmount').value.trim();
-            // Allow empty / partial numeric ("0." etc.) without throwing
-            if (!ethInput) {
-                document.getElementById('torcAmount').value = '';
-                document.getElementById('quoteDetails').innerHTML = '';
-                return;
-            }
-            if (!/^\d*(?:\.\d*)?$/.test(ethInput)) return; // invalid partial
-            isUpdating = true;
-            try {
-                if (!routerContract) return;
-                const amountETH = ethers.utils.parseEther(ethInput === '.' ? '0' : ethInput);
-                if (amountETH.isZero()) {
-                    document.getElementById('torcAmount').value = '0';
-                    document.getElementById('quoteDetails').innerHTML = '';
-                } else {
-                    const path = [await getWethAddress(), tokenAddress];
-                    const quote = await routerContract.getAmountsOut(amountETH, path);
-                    const torcOut = ethers.utils.formatUnits(quote[1], 18);
-                    document.getElementById('torcAmount').value = torcOut;
-                    if (ethPriceUSD) {
-                        const ethValueUSD = (parseFloat(ethInput) * ethPriceUSD).toFixed(2);
-                        document.getElementById('quoteDetails').innerHTML = `Quote: ${ethInput} ETH ≈ ${torcOut} TORC (≈ $${ethValueUSD} USD)`;
-                    }
-                }
-            } catch (err) {
-                console.error('Error updating from ETH:', err);
-            } finally {
-                isUpdating = false;
-            }
-        }
-
-        /**
-         * Update the ETH amount based on the TORC entered by the user. Uses
-         * getAmountsOut in the reverse direction (TORC→ETH) to estimate how
-         * much ETH would be returned when swapping the provided TORC amount.
-         */
-    async function updateFromTorc() {
-            if (isUpdating) return;
-            const torcInput = document.getElementById('torcAmount').value.trim();
-            if (!torcInput) {
-                document.getElementById('ethAmount').value = '';
-                document.getElementById('quoteDetails').innerHTML = '';
-                return;
-            }
-            if (!/^\d*(?:\.\d*)?$/.test(torcInput)) return; // invalid partial
-            isUpdating = true;
-            try {
-                if (!routerContract) return;
-                const amountTorc = ethers.utils.parseUnits(torcInput === '.' ? '0' : torcInput, 18);
-                if (amountTorc.isZero()) {
-                    document.getElementById('ethAmount').value = '0';
-                    document.getElementById('quoteDetails').innerHTML = '';
-                } else {
-                    // We want the ETH required for desired TORC out => use getAmountsIn
-                    const wethAddress = await getWethAddress();
-                    const path = [wethAddress, tokenAddress];
-                    let ethRequired;
-                    try {
-                        const amountsIn = await routerContract.getAmountsIn(amountTorc, path);
-                        ethRequired = ethers.utils.formatEther(amountsIn[0]);
-                    } catch (quoteErr) {
-                        console.warn('getAmountsIn reverted; falling back to ratio estimation', quoteErr);
-                        ethRequired = await fallbackQuoteEthForTorc(amountTorc, wethAddress);
-                    }
-                    document.getElementById('ethAmount').value = ethRequired;
-                    if (ethPriceUSD) {
-                        const ethValueUSD = (parseFloat(ethRequired) * ethPriceUSD).toFixed(2);
-                        document.getElementById('quoteDetails').innerHTML = `Quote: ${ethRequired} ETH → ${torcInput} TORC (Cost ≈ $${ethValueUSD} USD)`;
-                    }
-                }
-            } catch (err) {
-                console.error('Error updating from TORC:', err);
-            } finally {
-                isUpdating = false;
-            }
-        }
-
-        // Fallback: derive ETH required from reserves or a forward small sample quote
-        async function fallbackQuoteEthForTorc(amountTorcWei, wethAddress) {
-            // Try reserves first
-            try {
-                if (pairContract) {
-                    const [r0, r1] = await pairContract.getReserves();
-                    const t0 = await pairContract.token0();
-                    const t1 = await pairContract.token1();
-                    let reserveWeth; let reserveTorc;
-                    if (t0.toLowerCase() === wethAddress.toLowerCase()) {
-                        reserveWeth = r0; reserveTorc = r1;
-                    } else if (t1.toLowerCase() === wethAddress.toLowerCase()) {
-                        reserveWeth = r1; reserveTorc = r0;
-                    }
-                    if (reserveWeth && reserveTorc && reserveTorc > 0) {
-                        // Uniswap invariant: amountIn = (reserveIn * amountOut * 1000) / ((reserveOut - amountOut)*997)
-                        // Simplified spot (ignoring fee) fallback if amount small relative to reserves
-                        if (amountTorcWei < reserveTorc / 10) {
-                            const spotEth = amountTorcWei * reserveWeth / reserveTorc; // integer math ok for approximation
-                            return ethers.utils.formatEther(spotEth.toString());
-                        }
-                    }
-                }
-            } catch (e) {
-                console.warn('Reserve-based fallback failed', e);
-            }
-            // Secondary: sample 0.01 ETH forward quote then scale
-            try {
-                const sampleEth = ethers.utils.parseEther('0.01');
-                const pathFwd = [wethAddress, tokenAddress];
-                const out = await routerContract.getAmountsOut(sampleEth, pathFwd);
-                const torcPerEth = parseFloat(ethers.utils.formatUnits(out[1], 18)) / parseFloat(ethers.utils.formatEther(sampleEth));
-                if (torcPerEth > 0) {
-                    const desiredTorc = parseFloat(ethers.utils.formatUnits(amountTorcWei, 18));
-                    const neededEth = desiredTorc / torcPerEth;
-                    return neededEth.toFixed(6);
-                }
-            } catch (e2) {
-                console.warn('Sample forward quote fallback failed', e2);
-            }
-            return '0';
-        }
-
-        // Debounce to avoid spamming RPC while typing
-        let debounceTimer;
-        function debounce(fn) {
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(fn, 250);
         }
 
         document.getElementById('getQuote').addEventListener('click', async () => {
-            // Determine which field has a value and update accordingly. If both
-            // fields have values, prioritise the ETH→TORC direction.
-            const ethVal = document.getElementById('ethAmount').value;
-            const torcVal = document.getElementById('torcAmount').value;
-            if (ethVal) {
-                await updateFromEth();
-            } else if (torcVal) {
-                await updateFromTorc();
-            } else {
-                alert('Please enter an amount of ETH or TORC.');
+            const amountInput = document.getElementById('ethAmount').value;
+            if (!amountInput) {
+                alert('Please enter an amount of ETH.');
+                return;
+            }
+            const amountETH = ethers.utils.parseEther(amountInput);
+            const path = [await routerContract.WETH(), tokenAddress];
+            const quote = await routerContract.getAmountsOut(amountETH, path);
+            const torcOut = ethers.utils.formatUnits(quote[1], 18);
+
+            const ethValueUSD = (parseFloat(amountInput) * ethPriceUSD).toFixed(2);
+            document.getElementById('quoteDetails').innerHTML = `Quote: ${amountInput} ETH will get approximately ${torcOut} TORC. (1 ETH = $${ethPriceUSD}, Total: $${ethValueUSD} USD)`;
+            
+            // Also update the TORC amount field if it exists
+            if (document.getElementById('torcAmount')) {
+                document.getElementById('torcAmount').value = torcOut;
             }
         });
 
@@ -672,7 +493,7 @@
                 if (!routerContract || !pairContract) {
                     throw new Error("Contracts not initialized. Please connect your wallet first.");
                 }
-                const wethAddress = await getWethAddress();
+                const wethAddress = await routerContract.WETH();
                 const amountInput = document.getElementById('ethAmount').value;
                 const amountETH = ethers.utils.parseEther(amountInput || "0.0001");
                 const path = [wethAddress, tokenAddress];
@@ -702,15 +523,6 @@
                 document.getElementById('transactionStatus').innerHTML = `Transaction Failed/Cancelled: ${error.message}`;
                 alert('Failed to buy TORC.');
             }
-        });
-
-        // Hook up instant quoting on input changes. These listeners call the
-        // appropriate update functions when the user types into either field.
-        document.getElementById('ethAmount').addEventListener('input', () => {
-            if (routerContract) debounce(updateFromEth);
-        });
-        document.getElementById('torcAmount').addEventListener('input', () => {
-            if (routerContract) debounce(updateFromTorc);
         });
     </script>
 </body>
