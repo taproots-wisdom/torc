@@ -64,13 +64,6 @@
       z-index: 5;
     }
 
-    /*
-      The inner container centres navigation content on large displays. By
-      constraining the width we avoid the logo and call-to-action buttons
-      hugging the viewport edges on ultra-wide screens. Padding is applied
-      here rather than on .navbar to maintain a consistent gutter inside
-      the max-width wrapper.
-    */
     .nav-inner {
       max-width: 1200px;
       width: 100%;
@@ -90,7 +83,6 @@
       bottom: -22px;
       height: 28px;
       background: var(--primary);
-      /* create a subtle wavy underline similar to the reference screenshot */
       clip-path: polygon(
         0 60%,
         5% 50%,
@@ -103,7 +95,7 @@
         0 100%
       );
       z-index: -1;
-      pointer-events: none; /* ensure the decorative underline never blocks clicks */
+      pointer-events: none; 
     }
 
     .brand {
@@ -172,7 +164,6 @@
       margin: 0 auto;
       padding: 6rem 20px 4rem;
       position: relative;
-      /* ensure there is enough vertical space to allow decorative elements like the boar graphic to be visible */
       min-height: 80vh;
     }
 
@@ -203,7 +194,6 @@
       font-size: 1rem;
     }
 
-    /* boar graphic: positioned absolutely at the bottom left of the hero */
     .boar-img {
       position: absolute;
       left: -60px;
@@ -211,7 +201,7 @@
       width: 420px;
       max-width: 40vw;
       height: auto;
-      pointer-events: none; /* ensure the boar illustration does not block interactions */
+      pointer-events: none;
       z-index: 2;
     }
 
@@ -221,7 +211,7 @@
       width: 420px;
       max-width: 100%;
       position: relative;
-      z-index: 3; /* bring the interactive card above decorative overlays */
+      z-index: 3;
     }
 
     .trade-tag {
@@ -234,7 +224,7 @@
       background: url('assets/trade-tag.png') center/contain no-repeat;
       display: block;
       z-index: 2;
-      pointer-events: none; /* decorative tag should not intercept clicks */
+      pointer-events: none;
     }
 
     /* Card */
@@ -247,7 +237,7 @@
       box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
       color: #fff;
       position: relative;
-      z-index: 4; /* ensure card content sits above trade tag */
+      z-index: 4;
     }
 
     .tabs {
@@ -451,15 +441,6 @@
 <body>
   <!-- Navigation -->
   <header class="navbar">
-    <!--
-      Wrap the nav contents in a centered container. On very wide screens the
-      logo and Buy Now button would sit at the extreme edges because the
-      parent flex container fills the viewport. Introducing .nav-inner with
-      a max-width centers the row and keeps consistent spacing across
-      different resolutions.  The swoosh pseudo element remains on the
-      outer .navbar so the decorative underline spans the full width while
-      leaving room for the interactive content to sit comfortably.
-    -->
     <div class="nav-inner">
       <a class="brand" href="#"></a>
       <ul class="nav-links">
