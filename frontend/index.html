@@ -1,545 +1,782 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Swap ETH for TORC</title>
-    <!-- Preload Google Fonts for smooth typography -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;700&display=swap" rel="stylesheet">
-    <!-- Ethers.js library for interacting with Ethereum wallets -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.8.0/ethers.umd.min.js" type="application/javascript"></script>
-    <style>
-        /*
-          Colour palette and typographic variables. Defining these at the top makes
-          it trivial to experiment with different schemes later on. The dark
-          background contrasts sharply with the orange highlight used throughout
-          the site and helps the card pop off the page.
-        */
-        :root {
-            --primary-color: #ff7a27;
-            --secondary-color: #0f1a2a;
-            --overlay-colour: rgba(10, 9, 33, 0.65);
-            --text-light: #ffffff;
-            --text-muted: #a9acc9;
-            --accent-blue: #3c82ff;
-            --button-blue: #2762f3;
-            --button-blue-hover: #3c78f8;
-        }
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Swap ETH for TORC</title>
 
-        html, body {
-            height: 100%;
-            margin: 0;
-            padding: 0;
-            font-family: 'Montserrat', sans-serif;
-            color: var(--text-light);
-        }
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&display=swap" rel="stylesheet" />
 
-        /*
-          The swirling nebula background generated with the image tool. A dark
-          overlay is layered on top to improve contrast for text and cards.
-        */
-        body {
-            background: url('396baa0b-e828-47a1-8240-6a3cbd155fab.png') no-repeat center/cover fixed;
-            position: relative;
-        }
-        body::before {
-            content: "";
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: var(--overlay-colour);
-            z-index: -1;
-        }
+  <!-- Ethers.js library -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.8.0/ethers.umd.min.js" type="application/javascript"></script>
 
-        /* Navigation bar styling */
-        .navbar {
-            width: 100%;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 1rem 2rem;
-            box-sizing: border-box;
-            position: relative;
-            z-index: 5;
-        }
-        .logo {
-            font-size: 2rem;
-            font-weight: 700;
-            color: var(--accent-blue);
-            text-transform: lowercase;
-        }
-        .nav-links {
-            list-style: none;
-            display: flex;
-            gap: 1.5rem;
-            margin: 0;
-            padding: 0;
-        }
-        .nav-links a {
-            text-decoration: none;
-            color: var(--text-light);
-            font-weight: 500;
-            transition: color 0.3s ease;
-        }
-        .nav-links a:hover {
-            color: var(--primary-color);
-        }
-        .nav-actions {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
-        .btn-buy {
-            background: var(--primary-color);
-            border: none;
-            padding: 0.6rem 1.3rem;
-            border-radius: 8px;
-            color: #fff;
-            font-weight: 600;
-            cursor: pointer;
-            transition: opacity 0.3s ease;
-        }
-        .btn-buy:hover {
-            opacity: 0.85;
-        }
+  <style>
+    :root {
+      --primary: #ff7a27;
+      --background-dark: #0b0b12;
+      --card-dark: #0f1420;
+      --muted: #9aa2b6;
+      --white: #ffffff;
+      --blue: #2762f3;
+      --blue-hover: #3c78f8;
+    }
 
-        /* Hero section layout */
-        .hero {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: space-between;
-            align-items: flex-start;
-            padding: 5rem 8% 3rem;
-            min-height: 90vh;
-            box-sizing: border-box;
-        }
-        .hero-text {
-            flex: 1 1 45%;
-            max-width: 50%;
-            padding-right: 2rem;
-        }
-        .hero-text h1 {
-            font-size: 2.6rem;
-            line-height: 1.35;
-            margin: 0;
-        }
-        .hero-text h1 em {
-            font-style: italic;
-            color: var(--primary-color);
-        }
-        .hero-text p {
-            font-size: 1rem;
-            margin-top: 1.2rem;
-            color: var(--text-muted);
-        }
+    * {
+      box-sizing: border-box;
+    }
 
-        /* Swap card styling */
-        .swap-card {
-            width: 380px;
-            background: var(--secondary-color);
-            padding: 1.5rem;
-            border-radius: 20px;
-            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
-        }
-        .card-tagline {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-            margin-bottom: 0.4rem;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-        }
-        .tabs {
-            display: flex;
-            margin-bottom: 1.1rem;
-        }
-        .tab {
-            flex: 1;
-            text-align: center;
-            padding: 0.6rem 0;
-            cursor: pointer;
-            border-radius: 8px;
-            background: #182448;
-            color: var(--text-light);
-            font-weight: 600;
-            user-select: none;
-        }
-        .tab.active {
-            background: var(--primary-color);
-            color: #fff;
-        }
-        .form-row {
-            margin-bottom: 1rem;
-        }
-        .form-row label {
-            display: block;
-            font-size: 0.8rem;
-            margin-bottom: 0.4rem;
-            color: var(--text-muted);
-        }
-        .form-row input {
-            width: 100%;
-            padding: 0.6rem;
-            border-radius: 8px;
-            border: none;
-            background: #131b35;
-            color: var(--text-light);
-            font-size: 1rem;
-        }
-        .button-row {
-            display: flex;
-            justify-content: space-between;
-            gap: 0.5rem;
-            margin-bottom: 1rem;
-        }
-        .button-row button {
-            flex: 1;
-            padding: 0.6rem 0;
-            border: none;
-            background: #131b35;
-            color: var(--text-light);
-            border-radius: 8px;
-            font-size: 0.9rem;
-            cursor: pointer;
-        }
-        .button-row button:disabled {
-            opacity: 0.5;
-            cursor: default;
-        }
-        #connectWallet, #getQuote, #buyTorc {
-            width: 100%;
-            padding: 0.7rem 0;
-            border: none;
-            border-radius: 8px;
-            font-weight: 600;
-            font-size: 1rem;
-            cursor: pointer;
-            margin-bottom: 0.5rem;
-        }
-        #connectWallet {
-            background: var(--button-blue);
-            color: #fff;
-        }
-        #connectWallet:hover {
-            background: var(--button-blue-hover);
-        }
-        #getQuote {
-            background: #252c4c;
-            color: var(--text-light);
-        }
-        #buyTorc {
-            background: var(--primary-color);
-            color: #fff;
-        }
-        /* Dual input layout for ETH and TORC */
-        .dual-inputs {
-            display: flex;
-            gap: 0.5rem;
-            margin-bottom: 0.6rem;
-        }
-        .input-field {
-            flex: 1 1 50%;
-            min-width: 0;
-            max-width: 50%;
-        }
-        .input-with-icon {
-            position: relative;
-        }
-        .input-with-icon input {
-            width: 100%;
-            padding: 0.6rem;
-            border-radius: 8px;
-            border: none;
-            background: #131b35;
-            color: var(--text-light);
-            font-size: 1rem;
-            padding-right: 2.2rem;
-            box-sizing: border-box;
-            min-width: 0;
-        }
-        .input-with-icon .icon {
-            position: absolute;
-            right: 0.8rem;
-            top: 50%;
-            transform: translateY(-50%);
-            font-size: 1rem;
-            pointer-events: none;
-        }
-        .input-with-icon .icon.eth {
-            color: #4ea8ff;
-        }
-        .input-with-icon .icon.torc {
-            color: #e4b14f;
-        }
-        .or-text {
-            text-align: center;
-            font-size: 0.75rem;
-            color: var(--text-muted);
-            margin-bottom: 0.7rem;
-        }
-        /* Status and info outputs */
-        #quoteDetails, #transactionStatus, #swapDetails, #walletInfo {
-            font-size: 0.8rem;
-            margin-top: 0.5rem;
-            color: var(--text-muted);
-            word-wrap: break-word;
-        }
-        .quote-details {
-            font-size: 0.8rem;
-            margin-bottom: 0.5rem;
-            color: var(--text-muted);
-            word-wrap: break-word;
-        }
-        .whitepaper-btn {
-            display: inline-block;
-            margin-top: 1.2rem;
-            background: var(--primary-color);
-            color: #fff;
-            padding: 0.6rem 1.2rem;
-            border-radius: 8px;
-            font-size: 0.9rem;
-            text-decoration: none;
-            font-weight: 600;
-            transition: opacity 0.3s ease;
-        }
-        .whitepaper-btn:hover {
-            opacity: 0.85;
-        }
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+      font-family: 'Montserrat', sans-serif;
+      color: var(--white);
+    }
 
-        /* Responsive tweaks */
-        @media (max-width: 900px) {
-            .hero {
-                flex-direction: column;
-                align-items: stretch;
-            }
-            .hero-text {
-                max-width: 100%;
-                padding-right: 0;
-                margin-bottom: 2.5rem;
-            }
-            .swap-card {
-                width: 100%;
-            }
-        }
-    </style>
+    body {
+      background: #000 url('assets/bg-space.png') center/cover no-repeat fixed;
+      position: relative;
+    }
+
+    body::after {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: linear-gradient(180deg, rgba(5, 6, 20, 0.6) 0%, rgba(5, 6, 20, 0.7) 100%);
+      pointer-events: none;
+      z-index: -1;
+    }
+
+    /* Navbar styling */
+    .navbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 28px;
+      height: 80px;
+      background: #ffffff;
+      color: #000;
+      position: relative;
+      z-index: 5;
+    }
+
+    /*
+      The inner container centres navigation content on large displays. By
+      constraining the width we avoid the logo and call-to-action buttons
+      hugging the viewport edges on ultra-wide screens. Padding is applied
+      here rather than on .navbar to maintain a consistent gutter inside
+      the max-width wrapper.
+    */
+    .nav-inner {
+      max-width: 1200px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .navbar::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: -22px;
+      height: 28px;
+      background: var(--primary);
+      /* create a subtle wavy underline similar to the reference screenshot */
+      clip-path: polygon(
+        0 60%,
+        5% 50%,
+        20% 55%,
+        40% 45%,
+        60% 60%,
+        85% 50%,
+        100% 60%,
+        100% 100%,
+        0 100%
+      );
+      z-index: -1;
+      pointer-events: none; /* ensure the decorative underline never blocks clicks */
+    }
+
+    .brand {
+      display: block;
+      width: 180px;
+      height: 40px;
+      background: url('assets/logo-torc.png') left center/contain no-repeat;
+      zoom: 2.5;
+    }
+
+    .nav-links {
+      list-style: none;
+      display: flex;
+      gap: 28px;
+      margin: 0;
+      padding: 0;
+    }
+
+    .nav-links a {
+      color: #000;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    .nav-cta {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .btn-buy-now {
+      background: var(--primary);
+      color: #fff;
+      padding: 10px 18px;
+      border-radius: 8px;
+      border: none;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .icon-disc {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: var(--blue);
+      color: #fff;
+      cursor: pointer;
+    }
+
+    .icon-disc img {
+      width: 20px;
+      height: 20px;
+    }
+
+    /* Hero section */
+    .hero {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: flex-start;
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 6rem 20px 4rem;
+      position: relative;
+      /* ensure there is enough vertical space to allow decorative elements like the boar graphic to be visible */
+      min-height: 80vh;
+    }
+
+    .hero-title {
+      flex: 1 1 45%;
+      max-width: 50%;
+    }
+
+    .hero-title h1 {
+      font-size: 3rem;
+      line-height: 1.1;
+      margin: 0;
+      font-weight: 700;
+      text-transform: none;
+    }
+
+    .hero-title h1 span {
+      display: block;
+    }
+
+    .callout {
+      margin-top: 1rem;
+      display: inline-block;
+      background: rgba(0, 0, 0, 0.45);
+      padding: 0.8rem 1.4rem;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 1rem;
+    }
+
+    /* boar graphic: positioned absolutely at the bottom left of the hero */
+    .boar-img {
+      position: absolute;
+      left: -60px;
+      bottom: 0;
+      width: 420px;
+      max-width: 40vw;
+      height: auto;
+      pointer-events: none; /* ensure the boar illustration does not block interactions */
+      z-index: 2;
+    }
+
+    /* Swap card wrapper */
+    .swap-wrap {
+      flex: 0 0 auto;
+      width: 420px;
+      max-width: 100%;
+      position: relative;
+      z-index: 3; /* bring the interactive card above decorative overlays */
+    }
+
+    .trade-tag {
+      position: absolute;
+      left: 50%;
+      top: -24px;
+      transform: translateX(-50%);
+      width: 330px;
+      height: 46px;
+      background: url('assets/trade-tag.png') center/contain no-repeat;
+      display: block;
+      z-index: 2;
+      pointer-events: none; /* decorative tag should not intercept clicks */
+    }
+
+    /* Card */
+    .card {
+      margin-top: 20px;
+      background: radial-gradient(circle at 50% -20%, #50240a, #151b2e 50%, #0c1220 100%);
+      border-radius: 18px;
+      padding: 24px 20px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
+      color: #fff;
+      position: relative;
+      z-index: 4; /* ensure card content sits above trade tag */
+    }
+
+    .tabs {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+      margin-bottom: 20px;
+    }
+
+    .tab {
+      flex: 1;
+      height: 42px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .tab.primary {
+      background: var(--primary);
+      color: #fff;
+    }
+
+    .tab.ghost {
+      background: #423b3c;
+      color: #ddd;
+    }
+
+    .labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #c7d0e2;
+      margin-bottom: 6px;
+    }
+
+    .dual-inputs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+
+    .input {
+      position: relative;
+      flex: 1;
+    }
+
+    .input input {
+      width: 100%;
+      height: 44px;
+      border-radius: 8px;
+      border: none;
+      outline: none;
+      background: #10172b;
+      color: #fff;
+      padding: 0 36px 0 12px;
+      font-size: 1rem;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+    }
+
+    .input img.icon {
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 18px;
+      height: 18px;
+      pointer-events: none;
+    }
+
+    .input .gold-icon {
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #e4b14f;
+    }
+
+    .presets {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      margin: 14px 0 14px;
+    }
+
+    .presets button {
+      min-width: 84px;
+      height: 40px;
+      border-radius: 8px;
+      border: 1px solid #2c2f3e;
+      background: #10162a;
+      color: #fff;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .presets button:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+
+    .btn-wide {
+      width: 100%;
+      height: 46px;
+      border-radius: 8px;
+      border: none;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .btn-connect {
+      background: var(--blue);
+      color: #fff;
+    }
+
+    .btn-connect:hover {
+      background: var(--blue-hover);
+    }
+
+    .btn-quote {
+      background: #2a314a;
+      color: #e8eeff;
+      margin-top: 8px;
+    }
+
+    .btn-buy {
+      background: var(--primary);
+      color: #fff;
+      margin-top: 8px;
+    }
+
+    .status {
+      font-size: 0.8rem;
+      color: #a9acc9;
+      margin-top: 4px;
+      word-wrap: break-word;
+    }
+
+    .ribbon-wrap {
+      display: flex;
+      justify-content: center;
+      margin-top: 16px;
+    }
+
+    .ribbon {
+      width: 240px;
+      height: 50px;
+      background: url('assets/whitepaper-ribbon.png') center/contain no-repeat;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .footer-badge {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 12px;
+      font-size: 0.9rem;
+      color: #cbd6ff;
+    }
+
+    .footer-badge img {
+      height: 20px;
+      width: auto;
+    }
+
+    /* Responsive */
+    @media (max-width: 1000px) {
+      .hero {
+        flex-direction: column;
+        padding-top: 4rem;
+      }
+      .hero-title {
+        max-width: 100%;
+      }
+      .swap-wrap {
+        width: 100%;
+        margin-top: 2rem;
+      }
+      .boar {
+        display: none;
+      }
+      .navbar::after {
+        left: 30px;
+        right: 30px;
+      }
+    }
+  </style>
 </head>
 <body>
-    <nav class="navbar">
-        <div class="logo">torc</div>
-        <ul class="nav-links">
-            <li><a href="#">WHAT’S TORC?</a></li>
-            <li><a href="#">ANCIENT QUEST</a></li>
-            <li><a href="#">WHITE PAPER</a></li>
-            <li><a href="#">FAQS</a></li>
-        </ul>
-        <div class="nav-actions">
-            <button class="btn-buy">Buy Now</button>
+  <!-- Navigation -->
+  <header class="navbar">
+    <!--
+      Wrap the nav contents in a centered container. On very wide screens the
+      logo and Buy Now button would sit at the extreme edges because the
+      parent flex container fills the viewport. Introducing .nav-inner with
+      a max-width centers the row and keeps consistent spacing across
+      different resolutions.  The swoosh pseudo element remains on the
+      outer .navbar so the decorative underline spans the full width while
+      leaving room for the interactive content to sit comfortably.
+    -->
+    <div class="nav-inner">
+      <a class="brand" href="#"></a>
+      <ul class="nav-links">
+        <li><a href="#">WHAT’S TORC?</a></li>
+        <li><a href="#">ANCIENT QUEST</a></li>
+        <li><a href="#">WHITE PAPER</a></li>
+        <li><a href="#">FAQs</a></li>
+      </ul>
+      <div class="nav-cta">
+        <button class="btn-buy-now" type="button">Buy Now</button>
+        <div class="icon-disc">
+          <img src="assets/discord.svg" alt="Discord" />
         </div>
-    </nav>
+      </div>
+    </div>
+  </header>
 
-    <section class="hero">
-        <div class="hero-text">
-            <h1>Being human is a big job.<br>Being <em>well</em> is an epic quest.</h1>
-            <p>A trailblazing twist on an ancient hunt</p>
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="hero-title">
+      <h1>
+        <span>wisdom doesn't age.</span>
+        <span>it mints.</span>
+      </h1>
+      <div class="callout">Earth’s first wisdom-trading network</div>
+    </div>
+    <div class="swap-wrap">
+      <span class="trade-tag"></span>
+      <div class="card">
+        <div class="tabs">
+          <div class="tab primary">Buy TORC</div>
+          <div class="tab ghost">Info</div>
         </div>
-        <div class="swap-card">
-            <div class="card-tagline">Trade on timeless wisdom</div>
-            <div class="tabs">
-                <div class="tab active">Buy TORC</div>
-                <div class="tab">Info</div>
-            </div>
-            <!--
-              Two inputs: one for ETH and one for TORC. Each input includes a small
-              icon aligned to the right to hint at the currency. When the user
-              enters a value in one field, the other field updates instantly via
-              the JavaScript logic appended below. This replicates the look of
-              the reference design where two boxes sit side-by-side.
-            -->
-            <div class="dual-inputs">
-                <div class="input-field">
-                    <label for="ethAmount">ETH you pay</label>
-                    <div class="input-with-icon">
-                        <input id="ethAmount" type="text" placeholder="0.0001" onfocus="if(this.value==''){this.value='';}" onblur="if(this.value==''){this.value='';}">
-                        <span class="icon eth">&#x039E;</span>
-                    </div>
-                </div>
-                <div class="input-field">
-                    <label for="torcAmount">$ TORC you receive</label>
-                    <div class="input-with-icon">
-                        <input id="torcAmount" type="text" placeholder="0" onfocus="if(this.value==''){this.value='';}" onblur="if(this.value==''){this.value='';}">
-                        <span class="icon torc">&#x25CF;</span>
-                    </div>
-                </div>
-            </div>
-            <!-- Display live quote just below the input boxes -->
-            <div id="quoteDetails" class="quote-details"></div>
-            <div class="or-text">or choose a dollar amount</div>
-            <div class="button-row">
-                <button id="set50" onclick="setEthAmount(50)" disabled>$50</button>
-                <button id="set100" onclick="setEthAmount(100)" disabled>$100</button>
-                <button id="set500" onclick="setEthAmount(500)" disabled>$500</button>
-            </div>
-            <button id="connectWallet">Connect Wallet</button>
-            <button id="getQuote" disabled>Get Quote</button>
-            <button id="buyTorc" disabled>Buy TORC</button>
-            <div id="walletInfo"></div>
-            <div id="transactionStatus"></div>
-            <div id="swapDetails"></div>
-            <a class="whitepaper-btn" href="#">WHITE PAPER</a>
+        <div class="labels">
+          <span>ETH you pay</span>
+          <span>$ TORC you receive</span>
         </div>
-    </section>
+        <div class="dual-inputs">
+          <div class="input">
+            <input
+              id="ethAmount"
+              type="text"
+              placeholder="0.0001"
+              onfocus="if(this.value==''){this.value='';}"
+              onblur="if(this.value==''){this.value='';}"
+            />
+            <img class="icon" src="assets/eth-icon.png" alt="ETH icon" />
+          </div>
+          <div class="input">
+            <input
+              id="torcAmount"
+              type="text"
+              placeholder="0"
+              onfocus="if(this.value==''){this.value='';}"
+              onblur="if(this.value==''){this.value='';}"
+            />
+            <div class="gold-icon"></div>
+          </div>
+        </div>
+        <div class="presets">
+          <button id="set50" onclick="setEthAmount(50)" disabled>$50</button>
+          <button id="set100" onclick="setEthAmount(100)" disabled>$100</button>
+          <button id="set500" onclick="setEthAmount(500)" disabled>$500</button>
+        </div>
+        <button id="connectWallet" class="btn-wide btn-connect" type="button">
+          Connect Wallet
+        </button>
+        <button id="getQuote" class="btn-wide btn-quote" type="button" disabled>
+          Get Quote
+        </button>
+        <button id="buyTorc" class="btn-wide btn-buy" type="button" disabled>
+          Buy TORC
+        </button>
+        <div id="walletInfo" class="status"></div>
+        <div id="quoteDetails" class="status"></div>
+        <div id="transactionStatus" class="status"></div>
+        <div id="swapDetails" class="status"></div>
+        <div class="ribbon-wrap">
+          <a href="#" class="ribbon">White Paper</a>
+        </div>
+        <div class="footer-badge">
+          <span>Listed on</span>
+          <img src="assets/uniswap.png" alt="Uniswap" />
+        </div>
+      </div>
+    </div>
+    <img class="boar-img" src="assets/boar-meteor.png" alt="" aria-hidden="true" />
+  </section>
 
-    <script>
-        let signer;
-        let routerContract;
-        let pairContract;
-        let ethPriceUSD;
+  <!-- JavaScript -->
+  <script>
+    // State variables
+    let signer;
+    let routerContract;
+    let pairContract;
+    let ethPriceUSD;
 
-        const routerAddress = '0xC532a74256D3Db42D0Bf7a0400fEFDbad7694008';
-        const pairAddress = '0x157f2d14104A5cBFf12d47311D86ED53784428c2';
-        const tokenAddress = '0x4d83764fbab749d1bd1d1fcb7ead7a6c52a169f9';
-        const routerABI = [
-            "function swapExactETHForTokens(uint amountOutMin, address[] calldata path, address to, uint deadline) external payable returns (uint[] memory amounts)",
-            "function WETH() external pure returns (address)",
-            "function getAmountsOut(uint amountIn, address[] memory path) public view returns (uint[] memory amounts)"
-        ];
-        const pairABI = [
-            "event Swap(address indexed sender, uint amount0In, uint amount1In, uint amount0Out, uint amount1Out, address indexed to)"
-        ];
+    const routerAddress = '0xC532a74256D3Db42D0Bf7a0400fEFDbad7694008';
+    const pairAddress = '0x157f2d14104A5cBFf12d47311D86ED53784428c2';
+    const tokenAddress = '0x4d83764fbab749d1bd1d1fcb7ead7a6c52a169f9';
+    const routerABI = [
+      'function swapExactETHForTokens(uint amountOutMin, address[] calldata path, address to, uint deadline) external payable returns (uint[] memory amounts)',
+      'function WETH() external pure returns (address)',
+      'function getAmountsOut(uint amountIn, address[] memory path) public view returns (uint[] memory amounts)'
+    ];
+    const pairABI = [
+      'event Swap(address indexed sender, uint amount0In, uint amount1In, uint amount0Out, uint amount1Out, address indexed to)'
+    ];
 
-        // EIP-1193 provider detection with multi-injection support (MetaMask preferred)
-        function getInjectedProvider() {
-            const { ethereum } = window;
-            if (!ethereum) return null;
-            if (Array.isArray(ethereum.providers) && ethereum.providers.length > 0) {
-                const mm = ethereum.providers.find(p => p.isMetaMask);
-                return mm || ethereum.providers[0];
-            }
-            return ethereum;
+    // Provider detection
+    function getInjectedProvider() {
+      const { ethereum } = window;
+      if (!ethereum) return null;
+      if (Array.isArray(ethereum.providers) && ethereum.providers.length > 0) {
+        const mm = ethereum.providers.find((p) => p.isMetaMask);
+        return mm || ethereum.providers[0];
+      }
+      return ethereum;
+    }
+
+    async function enableUI(provider) {
+      const ethersProvider = new ethers.providers.Web3Provider(provider, 'any');
+      await provider.request({ method: 'eth_requestAccounts' });
+      signer = ethersProvider.getSigner();
+      const address = await signer.getAddress();
+      const balance = await ethersProvider.getBalance(address);
+      const balanceInEth = ethers.utils.formatEther(balance);
+      document.getElementById('walletInfo').innerHTML =
+        `Connected Wallet Address: ${address}<br>Balance: ${balanceInEth} ETH`;
+
+      routerContract = new ethers.Contract(routerAddress, routerABI, signer);
+      pairContract = new ethers.Contract(pairAddress, pairABI, signer);
+
+      // Enable buttons
+      document.getElementById('buyTorc').disabled = false;
+      document.getElementById('getQuote').disabled = false;
+      document.getElementById('set50').disabled = false;
+      document.getElementById('set100').disabled = false;
+      document.getElementById('set500').disabled = false;
+
+      // Fetch ETH price in USD
+      try {
+        const res = await fetch(
+          'https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd'
+        );
+        const data = await res.json();
+        ethPriceUSD = data?.ethereum?.usd;
+      } catch (e) {
+        console.warn('Failed to fetch ETH price:', e);
+      }
+
+      // React to account/chain changes
+      provider.on?.('accountsChanged', () => window.location.reload());
+      provider.on?.('chainChanged', () => window.location.reload());
+    }
+
+    document.getElementById('connectWallet').addEventListener('click', async () => {
+      try {
+        const provider = getInjectedProvider();
+        if (!provider) {
+          alert(
+            'MetaMask (or an EIP-1193 wallet) is not available. Please install MetaMask and refresh.'
+          );
+          return;
         }
+        await enableUI(provider);
+      } catch (error) {
+        console.error('Error connecting to wallet:', error);
+        alert('Failed to connect wallet. See console for details.');
+      }
+    });
 
-        async function enableUI(provider) {
-            const ethersProvider = new ethers.providers.Web3Provider(provider, 'any');
-            await provider.request({ method: 'eth_requestAccounts' });
-            signer = ethersProvider.getSigner();
-            const address = await signer.getAddress();
-            const balance = await ethersProvider.getBalance(address);
-            const balanceInEth = ethers.utils.formatEther(balance);
-            document.getElementById('walletInfo').innerHTML = `Connected Wallet Address: ${address}<br>Balance: ${balanceInEth} ETH`;
+    // Set ETH amount based on USD presets
+    function setEthAmount(usdAmount) {
+      if (!ethPriceUSD) return;
+      const ethAmount = (usdAmount / ethPriceUSD).toFixed(4);
+      document.getElementById('ethAmount').value = ethAmount;
+      if (routerContract) {
+        requestQuoteFromEth();
+      }
+    }
 
-            routerContract = new ethers.Contract(routerAddress, routerABI, signer);
-            pairContract = new ethers.Contract(pairAddress, pairABI, signer);
-            document.getElementById('buyTorc').disabled = false;
-            document.getElementById('getQuote').disabled = false;
-            document.getElementById('set50').disabled = false;
-            document.getElementById('set100').disabled = false;
-            document.getElementById('set500').disabled = false;
+    // Debounce helpers
+    let t1 = null,
+      t2 = null;
+    let _syncing = false;
 
-            // Fetch current ETH price (USD)
-            try {
-                const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd');
-                const data = await response.json();
-                ethPriceUSD = data?.ethereum?.usd;
-            } catch (e) {
-                console.warn('Failed to fetch ETH price:', e);
-            }
+    document.getElementById('ethAmount').addEventListener('input', () => {
+      if (!routerContract) return;
+      clearTimeout(t1);
+      t1 = setTimeout(requestQuoteFromEth, 250);
+    });
 
-            // React to account/chain changes
-            provider.on?.('accountsChanged', () => window.location.reload());
-            provider.on?.('chainChanged', () => window.location.reload());
+    document.getElementById('torcAmount').addEventListener('input', () => {
+      if (!routerContract) return;
+      clearTimeout(t2);
+      t2 = setTimeout(requestQuoteFromTorc, 250);
+    });
+
+    // Quote functions
+    async function requestQuoteFromEth() {
+      if (_syncing) return;
+      _syncing = true;
+      try {
+        const amtStr = (document.getElementById('ethAmount').value || '').trim();
+        if (!amtStr || isNaN(+amtStr)) {
+          _syncing = false;
+          return;
         }
-
-        document.getElementById('connectWallet').addEventListener('click', async () => {
-            try {
-                const provider = getInjectedProvider();
-                if (!provider) {
-                    alert('MetaMask (or an EIP-1193 wallet) is not available. Please install MetaMask and refresh.');
-                    return;
-                }
-                await enableUI(provider);
-            } catch (error) {
-                console.error('Error connecting to wallet:', error);
-                alert('Failed to connect wallet. See console for details.');
-            }
-        });
-
-        function setEthAmount(usdAmount) {
-            const ethAmount = (usdAmount / ethPriceUSD).toFixed(4);
-            document.getElementById('ethAmount').value = ethAmount;
+        const amtETH = ethers.utils.parseEther(amtStr);
+        const path = [await routerContract.WETH(), tokenAddress];
+        const quote = await routerContract.getAmountsOut(amtETH, path);
+        const torc = ethers.utils.formatUnits(quote[1], 18);
+        const torc2 = (+torc).toFixed(2);
+        document.getElementById('torcAmount').value = torc2;
+        if (ethPriceUSD) {
+          const usd = (+amtStr * ethPriceUSD).toFixed(2);
+          document.getElementById('quoteDetails').textContent =
+            `Quote: ${amtStr} ETH ≈ ${torc2} TORC  (1 ETH = $${ethPriceUSD}, Total ≈ $${usd})`;
+        } else {
+          document.getElementById('quoteDetails').textContent =
+            `Quote: ${amtStr} ETH ≈ ${torc2} TORC`;
         }
+      } catch (e) {
+        console.warn(e);
+      }
+      _syncing = false;
+    }
 
-        document.getElementById('getQuote').addEventListener('click', async () => {
-            const amountInput = document.getElementById('ethAmount').value;
-            if (!amountInput) {
-                alert('Please enter an amount of ETH.');
-                return;
-            }
-            const amountETH = ethers.utils.parseEther(amountInput);
-            const path = [await routerContract.WETH(), tokenAddress];
-            const quote = await routerContract.getAmountsOut(amountETH, path);
-            const torcOut = ethers.utils.formatUnits(quote[1], 18);
-            const torcOutTruncated = parseFloat(torcOut).toFixed(2); // Show with 2 decimal places
+    async function requestQuoteFromTorc() {
+      if (_syncing) return;
+      _syncing = true;
+      try {
+        const amtStr = (document.getElementById('torcAmount').value || '').trim();
+        if (!amtStr || isNaN(+amtStr)) {
+          _syncing = false;
+          return;
+        }
+        const amtTORC = ethers.utils.parseUnits(amtStr, 18);
+        const path = [tokenAddress, await routerContract.WETH()];
+        const quote = await routerContract.getAmountsOut(amtTORC, path);
+        const ethOut = ethers.utils.formatEther(quote[1]);
+        const eth6 = (+ethOut).toFixed(6);
+        document.getElementById('ethAmount').value = eth6;
+        if (ethPriceUSD) {
+          const usd = (+eth6 * ethPriceUSD).toFixed(2);
+          document.getElementById('quoteDetails').textContent =
+            `Quote: ${amtStr} TORC ≈ ${eth6} ETH  (1 ETH = $${ethPriceUSD}, Total ≈ $${usd})`;
+        } else {
+          document.getElementById('quoteDetails').textContent =
+            `Quote: ${amtStr} TORC ≈ ${eth6} ETH`;
+        }
+      } catch (e) {
+        console.warn(e);
+      }
+      _syncing = false;
+    }
 
-            const ethValueUSD = (parseFloat(amountInput) * ethPriceUSD).toFixed(2);
-            document.getElementById('quoteDetails').innerHTML = `Quote: ${amountInput} ETH will get approximately ${torcOutTruncated} TORC. (1 ETH = $${ethPriceUSD}, Total: $${ethValueUSD} USD)`;
-            
-            // Also update the TORC amount field if it exists
-            if (document.getElementById('torcAmount')) {
-                document.getElementById('torcAmount').value = torcOutTruncated;
-            }
+    document.getElementById('getQuote').addEventListener('click', async () => {
+      try {
+        const v = (document.getElementById('ethAmount').value || '').trim();
+        if (!v) {
+          alert('Please enter an amount of ETH.');
+          return;
+        }
+        const amountETH = ethers.utils.parseEther(v);
+        const path = [await routerContract.WETH(), tokenAddress];
+        const quote = await routerContract.getAmountsOut(amountETH, path);
+        const torc = ethers.utils.formatUnits(quote[1], 18);
+        const torc2 = (+torc).toFixed(2);
+        const usd = ethPriceUSD ? (+v * ethPriceUSD).toFixed(2) : null;
+        document.getElementById('torcAmount').value = torc2;
+        document.getElementById('quoteDetails').textContent =
+          usd
+            ? `Quote: ${v} ETH ≈ ${torc2} TORC  (1 ETH = $${ethPriceUSD}, Total ≈ $${usd})`
+            : `Quote: ${v} ETH ≈ ${torc2} TORC`;
+      } catch (e) {
+        console.error(e);
+      }
+    });
+
+    document.getElementById('buyTorc').addEventListener('click', async () => {
+      try {
+        if (!routerContract || !pairContract) {
+          throw new Error('Contracts not initialized. Please connect your wallet first.');
+        }
+        const wethAddress = await routerContract.WETH();
+        const amountInput = document.getElementById('ethAmount').value;
+        const amountETH = ethers.utils.parseEther(amountInput || '0.0001');
+        const path = [wethAddress, tokenAddress];
+        const to = await signer.getAddress();
+        const deadline = Math.floor(Date.now() / 1000) + 100;
+        const tx = await routerContract.swapExactETHForTokens(0, path, to, deadline, {
+          value: amountETH,
         });
+        document.getElementById('transactionStatus').textContent = `Transaction submitted (Pending): ${tx.hash}`;
 
-        // Add event listener to show TORC with 2 decimal places on input
-        document.getElementById('torcAmount').addEventListener('input', function() {
-            const value = this.value;
-            if (value && !isNaN(value)) {
-                const truncated = parseFloat(value).toFixed(2);
-                if (truncated !== value) {
-                    this.value = truncated;
-                }
-            }
-        });
+        pairContract.once(
+          'Swap',
+          (sender, a0In, a1In, a0Out, a1Out, toAddr, ev) => {
+            const ethIn = ethers.utils.formatUnits(a0In, 18);
+            const torcOut = ethers.utils.formatUnits(a1Out, 18);
+            const torc2 = (+torcOut).toFixed(2);
+            document.getElementById('swapDetails').textContent =
+              `Swap Details: ${ethIn} ETH swapped for ${torc2} TORC`;
+          }
+        );
 
-        document.getElementById('buyTorc').addEventListener('click', async () => {
-            try {
-                if (!routerContract || !pairContract) {
-                    throw new Error("Contracts not initialized. Please connect your wallet first.");
-                }
-                const wethAddress = await routerContract.WETH();
-                const amountInput = document.getElementById('ethAmount').value;
-                const amountETH = ethers.utils.parseEther(amountInput || "0.0001");
-                const path = [wethAddress, tokenAddress];
-                const to = await signer.getAddress();
-                const deadline = Math.floor((new Date()).getTime() / 1000) + 100;
-                const tx = await routerContract.swapExactETHForTokens(
-                    0,
-                    path,
-                    to,
-                    deadline,
-                    { value: amountETH }
-                );
-                document.getElementById('transactionStatus').innerHTML = `Transaction submitted (Pending): ${tx.hash}`;
-
-                pairContract.once("Swap", (sender, amount0In, amount1In, amount0Out, amount1Out, to, event) => {
-                    const ethIn = ethers.utils.formatUnits(amount0In, 18);
-                    const torcOut = ethers.utils.formatUnits(amount1Out, 18);
-                    const torcOutTruncated = parseFloat(torcOut).toFixed(2); // Show with 2 decimal places
-                    document.getElementById('swapDetails').innerHTML = `Swap Details: ${ethIn} ETH swapped for ${torcOutTruncated} TORC`;
-                });
-
-                await tx.wait();
-                document.getElementById('transactionStatus').innerHTML = `Transaction Mined: ${tx.hash}`;
-                console.log('Transaction Hash:', tx.hash);
-                alert('TORC purchased successfully!');
-            } catch (error) {
-                console.error('Transaction failed:', error);
-                document.getElementById('transactionStatus').innerHTML = `Transaction Failed/Cancelled: ${error.message}`;
-                alert('Failed to buy TORC.');
-            }
-        });
-    </script>
+        await tx.wait();
+        document.getElementById('transactionStatus').textContent = `Transaction Mined: ${tx.hash}`;
+        alert('TORC purchased successfully!');
+      } catch (error) {
+        console.error('Transaction failed:', error);
+        document.getElementById('transactionStatus').textContent = `Transaction Failed/Cancelled: ${error.message}`;
+        alert('Failed to buy TORC.');
+      }
+    });
+  </script>
 </body>
 </html>
